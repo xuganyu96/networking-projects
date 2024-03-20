@@ -1,5 +1,6 @@
 //! A capture writer
 
+use crate::{codec::Codec, structs::Record};
 use std::io::{Read, Write};
 
 /// A wrapper around some I/O struct, such as a TcpStream, that acts just like the underlying
@@ -26,7 +27,13 @@ impl<T: Read> Read for Capture<T> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let rxsize = self.io.read(buf)?;
 
-        // Printout
+        // attempt to parse record
+        match Record::extract(buf) {
+            Some((record, _)) => println!("{}", record),
+            None => println!("RX {} failed to parse", self.ctr),
+        }
+
+        // Capture bytes into the sink
         writeln!(self.sink, "RX: {} <<<<<<", self.ctr)?;
         self.ctr += 1;
         for byte in buf.get(0..rxsize).expect("Reader overflowed user buffer") {
@@ -44,6 +51,11 @@ impl<T: Write> Write for Capture<T> {
     }
 
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match Record::extract(buf) {
+            Some((record, _)) => println!("{}", record),
+            None => println!("TX {} failed to parse", self.ctr),
+        }
+
         writeln!(self.sink, "TX: {} >>>>>>", self.ctr)?;
         self.ctr += 1;
         for byte in buf {

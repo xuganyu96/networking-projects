@@ -55,6 +55,8 @@ impl ContentType {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum ProtocolVersion {
+    Tls1_0, // 0x0301
+    Tls1_1, // 0x0302
     Tls1_2, // 0x0303
     Tls1_3, // 0x0304
 }
@@ -63,6 +65,8 @@ impl ProtocolVersion {
     /// Write the encoding onto the buffer
     pub fn encode(&self, buffer: &mut impl Write) -> std::io::Result<usize> {
         let bytes = match self {
+            Self::Tls1_0 => [0x03, 0x01],
+            Self::Tls1_1 => [0x03, 0x02],
             Self::Tls1_2 => [0x03, 0x03],
             Self::Tls1_3 => [0x03, 0x04],
         };
@@ -78,6 +82,8 @@ impl ProtocolVersion {
         let encoding = buffer.get(0..2).expect("Buffer has fewer than 2 bytes");
         let rest = buffer.get(2..).expect("Buffer has fewer than 2 bytes");
         match encoding {
+            &[0x03, 0x01] => Some((Self::Tls1_0, rest)),
+            &[0x03, 0x02] => Some((Self::Tls1_1, rest)),
             &[0x03, 0x03] => Some((Self::Tls1_2, rest)),
             &[0x03, 0x04] => Some((Self::Tls1_3, rest)),
             _ => None,
