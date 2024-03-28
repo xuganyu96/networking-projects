@@ -2,6 +2,7 @@
 use std::io::Write;
 
 /// Data structure can be written onto a buffer and be extracted from a buffer
+/// TODO: make extract return Result rather than Error
 pub trait Codec {
     type Data: Sized;
 

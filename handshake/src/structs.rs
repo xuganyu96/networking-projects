@@ -1,6 +1,6 @@
 //! Data structures and enums
 use crate::codec::Codec;
-use std::{fmt::Display, io::Write};
+use std::{fmt::Display, io::Write, ops::Deref};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum ContentType {
@@ -187,6 +187,161 @@ impl Codec for Record {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum HandshakeType {
+    ClientHello, // 0x01
+}
+
+impl Codec for HandshakeType {
+    type Data = HandshakeType;
+
+    fn encode(&self, buffer: &mut impl Write) -> std::io::Result<usize> {
+        let encoding = match self {
+            Self::ClientHello => 0x01u8,
+        };
+        buffer.write(&[encoding])
+    }
+
+    fn extract(buffer: &[u8]) -> Option<(Self::Data, &[u8])> {
+        match buffer.get(0) {
+            // Buffer is empty, nothing to extract
+            None => None,
+            Some(&0x01) => {
+                let rest = buffer.get(1..).expect("Buffer[1..] failed");
+                Some((Self::ClientHello, rest))
+            }
+
+            // handshake type did not match, nothing to extract
+            _ => None,
+        }
+    }
+}
+
+/// A wrapper around some bytes
+#[derive(Debug, PartialEq)]
+pub struct OpaqueData(Vec<u8>);
+
+impl Display for OpaqueData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let nbytes = self.0.len();
+        write!(f, "<opaque data {} bytes>", nbytes)
+    }
+}
+
+impl Deref for OpaqueData {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// A custom U24 type used in handshake messages
+/// We only care about encoding and decoding at this moment, so no need to worry about arithmetics
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct U24(u32);
+
+impl U24 {
+    pub const BYTES: usize = 3;
+    pub const BITS: usize = 24;
+
+    pub fn from_be_slice(bytes: &[u8; 3]) -> Self {
+        let mut extended_bytes = [0u8; 4]; // correct byte size for u32
+        extended_bytes[1..4].copy_from_slice(bytes);
+        let val = u32::from_be_bytes(extended_bytes);
+        return Self(val);
+    }
+
+    pub fn to_be_bytes(&self) -> [u8; 3] {
+        let mut output = [0u8; 3];
+        output.copy_from_slice(&self.0.to_be_bytes());
+        return output;
+    }
+}
+
+impl Codec for U24 {
+    type Data = Self;
+
+    fn encode(&self, buffer: &mut impl Write) -> std::io::Result<usize> {
+        buffer.write(&self.to_be_bytes())
+    }
+
+    fn extract(buffer: &[u8]) -> Option<(Self::Data, &[u8])> {
+        match buffer.get(0..Self::BYTES) {
+            Some(bytes) => {
+                // NOTE: somehow buffer.get(0..3)'s Some branch doesn't show slice length
+                let mut fixed_len_bytes = [0u8; 3];
+                fixed_len_bytes.copy_from_slice(bytes);
+                let val = Self::from_be_slice(&fixed_len_bytes);
+                let rest = buffer
+                    .get(Self::BYTES..)
+                    .expect("Buffer had sufficient length");
+                Some((val, rest))
+            }
+            None => None,
+        }
+    }
+}
+
+/// Converting into a larger integer type will not fail
+impl From<U24> for usize {
+    fn from(value: U24) -> Self {
+        value.0 as usize
+    }
+}
+
+/// TODO: implement Codec for this struct
+/// TODO: test this using Capture
+pub struct HandshakeMessage {
+    msg_type: HandshakeType,
+
+    /// Length of the remainder of the message; actually a u24, but Rust has no native u24 type
+    length: U24,
+
+    /// TODO: write the payload parser
+    payload: OpaqueData,
+}
+
+impl Codec for HandshakeMessage {
+    type Data = Self;
+
+    fn encode(&self, buffer: &mut impl Write) -> std::io::Result<usize> {
+        let mut txsize = 0;
+        txsize += self.msg_type.encode(buffer)?;
+        txsize += self.length.encode(buffer)?;
+        txsize += buffer.write(&self.payload)?;
+
+        return Ok(txsize);
+    }
+
+    fn extract(buffer: &[u8]) -> Option<(Self::Data, &[u8])> {
+        let (msg_type, buffer) = match HandshakeType::extract(buffer) {
+            Some((msg_type, rest)) => (msg_type, rest),
+            None => return None,
+        };
+        let (length_u24, buffer) = match U24::extract(buffer) {
+            Some((length, rest)) => (length, rest),
+            None => return None,
+        };
+        let length: usize = length_u24.into();
+        let (data_slice, rest) = match buffer.get(..length) {
+            Some(slice) => {
+                let rest = buffer.get(length..).expect("Buffer overflowed");
+                (slice, rest)
+            }
+            None => return None,
+        };
+        let payload = OpaqueData(data_slice.to_vec());
+        let msg = Self {
+            msg_type,
+            length: length_u24,
+            payload,
+        };
+
+        return Some((msg, rest));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,5 +358,18 @@ mod tests {
         assert_eq!(record.content_type, ContentType::Handshake);
         assert_eq!(record.protocol_version, ProtocolVersion::Tls1_2);
         assert_eq!(record.fragment, vec![0u8; 4]);
+    }
+
+    #[test]
+    fn handshake_msg_extraction() {
+        let data = [
+            0x01, // ClientHello
+            0x00, 0x00, 0x04, // contains 4 bytes of data
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        let (msg, _) = HandshakeMessage::extract(&data).unwrap();
+        assert_eq!(msg.msg_type, HandshakeType::ClientHello);
+        assert_eq!(msg.length, U24(4));
+        assert_eq!(msg.payload.0, vec![0u8; 4]);
     }
 }

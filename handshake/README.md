@@ -1,3 +1,14 @@
+- [x] Parse record
+    - [x] Parse content type
+    - [x] Parse protocol version
+    - [x] Parse u16
+    - [x] Parse fragment as raw bytes
+- [ ] Parse handshake message
+    - [ ] Parse message type
+    - [ ] Parse u24
+    - [ ] Parse handshake payload as raw bytes
+- [ ] Parse ClientHello
+
 # Handshake
 I want to build a TLS Handshake inspection tool in the form of a command-line application like `curl`:
 
