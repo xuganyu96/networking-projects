@@ -2,6 +2,12 @@
 - [ ] Read the captured hex and decide which structs to implement
 - [ ] Implement ClientHello parsing
 
+**Niceties**:
+- Implement `Serialize` and `Deserialize` for the data structures
+- Use a procedural macro to automatically implement serialization/deserialization for
+    - composite structs
+    - simple enums
+
 # Handshake
 Command-line TLS client
 
