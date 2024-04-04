@@ -119,6 +119,11 @@ impl U16 {
         let val = u16::from_be_bytes(bytes);
         return Self(val);
     }
+
+    /// Convert to usize for indexing
+    pub fn to_usize(&self) -> usize {
+        return self.0 as usize;
+    }
 }
 
 impl Deref for U16 {
@@ -144,4 +149,79 @@ impl Deserializable for U16 {
     }
 }
 
-// TODO: implement the Record type
+#[derive(Debug, Clone)]
+pub enum RecordPayload {
+    /// Copy the raw bytes over
+    Raw(Vec<u8>),
+
+    /// A handshake message
+    Handshake,
+
+    /// An application data message
+    ApplicationData,
+
+    /// An alert
+    Alert,
+}
+
+impl RecordPayload {
+    pub fn from_raw_slice(bytes: &[u8]) -> Self {
+        Self::Raw(bytes.to_vec())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Record {
+    pub content_type: ContentType,
+    pub legacy_record_version: ProtocolVersion,
+    pub length: U16,
+    pub payload: RecordPayload,
+}
+
+impl Record {
+    pub fn new(
+        content_type: ContentType,
+        legacy_record_version: ProtocolVersion,
+        length: U16,
+        payload: RecordPayload,
+    ) -> Self {
+        Self {
+            content_type,
+            legacy_record_version,
+            length,
+            payload,
+        }
+    }
+}
+
+impl Deserializable for Record {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let mut bytes_parsed: usize = 0;
+        let (content_type, consumed) = ContentType::try_deserialize(buffer)?;
+        let buffer = buffer.get(consumed..).expect("Unexpected buffer overflow");
+        bytes_parsed += consumed;
+
+        let (protocol_version, consumed) = ProtocolVersion::try_deserialize(buffer)?;
+        let buffer = buffer.get(consumed..).expect("Unexpected buffer overflow");
+        bytes_parsed += consumed;
+
+        let (length, consumed) = U16::try_deserialize(buffer)?;
+        let buffer = buffer.get(consumed..).expect("Unexpected buffer overflow");
+        bytes_parsed += consumed;
+
+        // TODO: for now we will only parse to raw bytes; after individual message type is
+        //   implemented, should parse to the correct message type
+        // TODO: try reading "length" bytes from the remainder of the
+        let length_usize = length.to_usize();
+        let buffer = buffer
+            .get(0..length_usize)
+            .ok_or(DeserializationError::insufficient_data(
+                length_usize,
+                buffer.len(),
+            ))?;
+        let fragment = RecordPayload::from_raw_slice(buffer);
+        bytes_parsed += length.to_usize();
+        let record = Self::new(content_type, protocol_version, length, fragment);
+        return Ok((record, bytes_parsed));
+    }
+}
