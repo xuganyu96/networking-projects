@@ -149,7 +149,7 @@ impl Deserializable for U16 {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RecordPayload {
     /// Copy the raw bytes over
     Raw(Vec<u8>),
@@ -211,7 +211,6 @@ impl Deserializable for Record {
 
         // TODO: for now we will only parse to raw bytes; after individual message type is
         //   implemented, should parse to the correct message type
-        // TODO: try reading "length" bytes from the remainder of the
         let length_usize = length.to_usize();
         let buffer = buffer
             .get(0..length_usize)
@@ -223,5 +222,20 @@ impl Deserializable for Record {
         bytes_parsed += length.to_usize();
         let record = Self::new(content_type, protocol_version, length, fragment);
         return Ok((record, bytes_parsed));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_record_to_raw_bytes() {
+        let buffer = [0x16, 0x03, 0x01, 0x00, 0x02, 0x00, 0x00];
+        let (record, _) = Record::try_deserialize(&buffer).expect("Failed to deserialize");
+        assert_eq!(record.content_type, ContentType::Handshake);
+        assert_eq!(record.legacy_record_version, ProtocolVersion::Tls1_0);
+        assert_eq!(record.length, U16(2));
+        assert_eq!(record.payload, RecordPayload::from_raw_slice(&[0u8; 2]));
     }
 }
