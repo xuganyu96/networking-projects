@@ -155,7 +155,7 @@ pub enum RecordPayload {
     Raw(Vec<u8>),
 
     /// A handshake message
-    Handshake,
+    Handshake(HandshakeMessage),
 
     /// An application data message
     ApplicationData,
@@ -225,10 +225,113 @@ impl Deserializable for Record {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum HandshakeType {
+    /// 0x01
+    ClientHello,
+    // TODO: implement the rest
+}
+
+impl HandshakeType {
+    pub const BYTES: usize = 1;
+}
+
+impl Deserializable for HandshakeType {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let encoding = buffer
+            .get(0)
+            .ok_or(DeserializationError::insufficient_data(
+                Self::BYTES,
+                buffer.len(),
+            ))?;
+        let msg_type = match *encoding {
+            1 => Self::ClientHello,
+            // TODO: implement the rest
+            _ => {
+                return Err(DeserializationError::InvalidEnumEncoding);
+            }
+        };
+
+        return Ok((msg_type, Self::BYTES));
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct U24(u32);
+
+impl U24 {
+    pub const BYTES: usize = 3;
+
+    pub fn from_be_slice(slice: &[u8]) -> Self {
+        assert_eq!(slice.len(), Self::BYTES);
+        let mut bytes = [0u8; 4];
+        bytes.get_mut(1..4).unwrap().copy_from_slice(slice);
+        return Self(u32::from_be_bytes(bytes));
+    }
+
+    pub fn to_usize(&self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl Deserializable for U24 {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let slice = buffer
+            .get(0..Self::BYTES)
+            .ok_or(DeserializationError::insufficient_data(
+                Self::BYTES,
+                buffer.len(),
+            ))?;
+        let length = U24::from_be_slice(slice);
+        return Ok((length, Self::BYTES));
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum HandshakeMessagePayload {
+    Raw(Vec<u8>),
+    ClientHelloPayload,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HandshakeMessage {
+    msg_type: HandshakeType,
+    length: U24,
+    payload: HandshakeMessagePayload,
+}
+
+impl Deserializable for HandshakeMessage {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let (msg_type, msg_type_size) = HandshakeType::try_deserialize(buffer)?;
+        let buffer = buffer.get(msg_type_size..).expect("Unexpected overflow");
+        let (length, length_size) = U24::try_deserialize(buffer)?;
+        let buffer = buffer.get(length_size..).expect("Unexpected overflow");
+        let payload =
+            buffer
+                .get(..length.to_usize())
+                .ok_or(DeserializationError::insufficient_data(
+                    length.to_usize(),
+                    buffer.len(),
+                ))?;
+        // TODO: parse the payload instead of just raw
+        let payload = HandshakeMessagePayload::Raw(payload.to_vec());
+
+        return Ok((
+            Self {
+                msg_type,
+                length,
+                payload,
+            },
+            msg_type_size + length_size + length.to_usize(),
+        ));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // TODO: test parsing bad inputs
     #[test]
     fn parse_record_to_raw_bytes() {
         let buffer = [0x16, 0x03, 0x01, 0x00, 0x02, 0x00, 0x00];
@@ -237,5 +340,41 @@ mod tests {
         assert_eq!(record.legacy_record_version, ProtocolVersion::Tls1_0);
         assert_eq!(record.length, U16(2));
         assert_eq!(record.payload, RecordPayload::from_raw_slice(&[0u8; 2]));
+    }
+
+    #[test]
+    fn u24_from_be_slice() {
+        assert_eq!(U24::from_be_slice(&[0x00, 0x00, 0x00]), U24(0x00000000u32));
+        assert_eq!(U24::from_be_slice(&[0x00, 0x00, 0xff]), U24(0x000000ffu32));
+        assert_eq!(U24::from_be_slice(&[0x00, 0xff, 0xff]), U24(0x0000ffffu32));
+        assert_eq!(U24::from_be_slice(&[0xff, 0xff, 0xff]), U24(0x00ffffffu32));
+    }
+
+    #[test]
+    fn parse_empty_handshake_message() {
+        let buffer = [0x01, 0x00, 0x00, 0x00];
+        let (msg, _) = HandshakeMessage::try_deserialize(&buffer).expect("Failed to deserialize");
+        assert_eq!(
+            msg,
+            HandshakeMessage {
+                msg_type: HandshakeType::ClientHello,
+                length: U24(0),
+                payload: HandshakeMessagePayload::Raw(vec![])
+            }
+        );
+    }
+
+    #[test]
+    fn parse_nonempty_handshake_raw() {
+        let buffer = [0x01, 0x00, 0x00, 0x01, 0xff];
+        let (msg, _) = HandshakeMessage::try_deserialize(&buffer).expect("Failed to deserialize");
+        assert_eq!(
+            msg,
+            HandshakeMessage {
+                msg_type: HandshakeType::ClientHello,
+                length: U24(1),
+                payload: HandshakeMessagePayload::Raw(vec![0xff])
+            }
+        );
     }
 }
