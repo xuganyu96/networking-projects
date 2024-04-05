@@ -1,4 +1,4 @@
-use std::{error::Error, ops::Deref};
+use std::{error::Error, fmt::Debug, ops::Deref};
 
 #[derive(Debug)]
 pub enum DeserializationError {
@@ -230,6 +230,7 @@ pub enum HandshakeType {
     /// 0x01
     ClientHello,
     // TODO: implement the rest
+    Other,
 }
 
 impl HandshakeType {
@@ -290,7 +291,82 @@ impl Deserializable for U24 {
 #[derive(Debug, Clone, PartialEq)]
 pub enum HandshakeMessagePayload {
     Raw(Vec<u8>),
-    ClientHelloPayload,
+    ClientHello(ClientHelloPayload),
+}
+
+#[derive(Clone, PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum CipherSuite {
+    /// 0x1301
+    TLS_AES_128_GCM_SHA256,
+    /// 0x1302
+    TLS_AES_256_GCM_SHA384,
+    /// 0x1303
+    TLS_CHACHA20_POLY1305_SHA256,
+
+    /// The value holds the encoding; all Tls1.2 ciphers will be ignored
+    UnsupportedSuite(u8, u8),
+}
+
+impl std::fmt::Debug for CipherSuite {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedSuite(b1, b2) => write!(f, "UnsupportedSuite(0x{:02X}{:02X})", b1, b2),
+            Self::TLS_AES_128_GCM_SHA256 => write!(f, "TLS_AES_128_GCM_SHA256 (0x1301)"),
+            Self::TLS_AES_256_GCM_SHA384 => write!(f, "TLS_AES_256_GCM_SHA384 (0x1302)"),
+            Self::TLS_CHACHA20_POLY1305_SHA256 => {
+                write!(f, "TLS_CHACHA20_POLY1305_SHA256 (0x1303)")
+            }
+        }
+    }
+}
+
+impl CipherSuite {
+    pub const BYTES: usize = 2;
+}
+
+impl Deserializable for CipherSuite {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let encoding =
+            buffer
+                .get(0..Self::BYTES)
+                .ok_or(DeserializationError::insufficient_data(
+                    Self::BYTES,
+                    buffer.len(),
+                ))?;
+        let suite = match encoding {
+            &[0x13, 0x01] => Self::TLS_AES_128_GCM_SHA256,
+            &[0x13, 0x02] => Self::TLS_AES_256_GCM_SHA384,
+            &[0x13, 0x03] => Self::TLS_CHACHA20_POLY1305_SHA256,
+            _ => Self::UnsupportedSuite(encoding[0], encoding[1]),
+        };
+        return Ok((suite, Self::BYTES));
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Extension {}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClientHelloPayload {
+    /// Always 0x0303 (Tls1.2) for compatibility reason
+    legacy_version: ProtocolVersion,
+
+    random: [u8; 30],
+
+    legacy_session_id: Vec<u8>,
+
+    cipher_suites: Vec<CipherSuite>,
+
+    legacy_compression_method: Vec<u8>,
+
+    extensions: Vec<Extension>,
+}
+
+impl Deserializable for ClientHelloPayload {
+    fn try_deserialize(_buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        todo!();
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -306,15 +382,20 @@ impl Deserializable for HandshakeMessage {
         let buffer = buffer.get(msg_type_size..).expect("Unexpected overflow");
         let (length, length_size) = U24::try_deserialize(buffer)?;
         let buffer = buffer.get(length_size..).expect("Unexpected overflow");
-        let payload =
+        let payload_slice =
             buffer
                 .get(..length.to_usize())
                 .ok_or(DeserializationError::insufficient_data(
                     length.to_usize(),
                     buffer.len(),
                 ))?;
-        // TODO: parse the payload instead of just raw
-        let payload = HandshakeMessagePayload::Raw(payload.to_vec());
+        let payload = match msg_type {
+            HandshakeType::ClientHello => {
+                let (client_hello_payload, _) = ClientHelloPayload::try_deserialize(payload_slice)?;
+                HandshakeMessagePayload::ClientHello(client_hello_payload)
+            }
+            _ => HandshakeMessagePayload::Raw(payload_slice.to_vec()),
+        };
 
         return Ok((
             Self {
