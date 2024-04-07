@@ -356,6 +356,9 @@ pub struct ClientHelloPayload {
 
     legacy_session_id: Vec<u8>,
 
+    // TODO: both cipher_suites and extensions are "vectors of deserializable objects", which takes
+    // a "length" + [objects] structure. Perhaps we can do a generic implementation
+    // impl<U: Deserializable> Deserializable for Vec<U>
     cipher_suites: Vec<CipherSuite>,
 
     legacy_compression_method: Vec<u8>,
