@@ -1,6 +1,7 @@
 - [x] Capture TLS handshake in hex
-- [ ] Read the captured hex and decide which structs to implement
+- [x] Read the captured hex and decide which structs to implement
 - [ ] Implement ClientHello parsing
+    - [ ] Consider providing a generic variable-length vector implementation
 
 **Niceties**:
 - Implement `Serialize` and `Deserialize` for the data structures
@@ -15,3 +16,15 @@ Command-line TLS client
 # Specify capture format and output path
 handshake --format [hex|b64|yaml] -o some/file <url>
 ```
+
+# Generic variable-length vector
+```rust
+/// T is the element type (e.g. ProtocolVersion in supported_versions), L is 
+/// the length type (e.g. U24). When deserializing, first deserialize the length
+/// field, then repeatedly deserialize the elements
+pub struct Vector<T, L> {
+    elems: Vec<T>,
+}
+```
+
+If there are fewer bytes remaining than the length field indicates, return "InsufficientData", otherwise parse the rest of the array and let the element parsing raise the appropriate error.
