@@ -1,4 +1,5 @@
 use std::{error::Error, fmt::Debug, ops::Deref};
+pub mod vec;
 
 #[derive(Debug)]
 pub enum DeserializationError {
@@ -27,7 +28,7 @@ impl std::fmt::Display for DeserializationError {
 impl Error for DeserializationError {}
 
 /// Can deserialize from raw bytes
-pub(crate) trait Deserializable: Sized {
+pub trait Deserializable: Sized {
     /// Read from the beginning of the buffer and try to parse the raw bytes into this data
     /// structure. If the parsing is successful, return the data structure and the number of bytes
     /// consumed. Otherwise, return the appropriate error.
@@ -105,6 +106,44 @@ impl Deserializable for ProtocolVersion {
     }
 }
 
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct U8(u8);
+
+impl U8 {
+    pub const BYTES: usize = 1;
+
+    pub fn to_usize(&self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl From<U8> for usize {
+    fn from(value: U8) -> Self {
+        value.to_usize()
+    }
+}
+
+impl Deref for U8 {
+    type Target = u8;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deserializable for U8 {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let encoding = buffer
+            .get(0)
+            .ok_or(DeserializationError::insufficient_data(
+                Self::BYTES,
+                buffer.len(),
+            ))?;
+
+        return Ok((U8(*encoding), Self::BYTES));
+    }
+}
+
 /// A custom wrapper around the native u16 type, useful for implementing custom traits
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct U16(u16);
@@ -123,6 +162,12 @@ impl U16 {
     /// Convert to usize for indexing
     pub fn to_usize(&self) -> usize {
         return self.0 as usize;
+    }
+}
+
+impl From<U16> for usize {
+    fn from(value: U16) -> Self {
+        value.to_usize()
     }
 }
 
@@ -272,6 +317,12 @@ impl U24 {
 
     pub fn to_usize(&self) -> usize {
         self.0 as usize
+    }
+}
+
+impl From<U24> for usize {
+    fn from(value: U24) -> Self {
+        value.to_usize()
     }
 }
 
