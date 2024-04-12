@@ -4,6 +4,7 @@ use crate::{Deserializable, DeserializationError};
 /// Generic implementation of a variable-length vector
 /// The size of the length field (U) is known at compile time, but the number of elements in the
 /// payload is only known at runtime
+#[derive(Debug, Clone, PartialEq)]
 pub struct Vector<T, U> {
     /// The number of bytes needed to encode the elements
     length: U,

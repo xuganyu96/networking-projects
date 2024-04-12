@@ -1,4 +1,6 @@
 use std::{error::Error, fmt::Debug, ops::Deref};
+
+use vec::Vector;
 pub mod vec;
 
 #[derive(Debug)]
@@ -73,9 +75,13 @@ impl Deserializable for ContentType {
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum ProtocolVersion {
+    /// 0x0301
     Tls1_0,
+    /// 0x0302
     Tls1_1,
+    /// 0x0303
     Tls1_2,
+    /// 0x0304
     Tls1_3,
 }
 
@@ -197,7 +203,7 @@ impl Deserializable for U16 {
 #[derive(Debug, Clone, PartialEq)]
 pub enum RecordPayload {
     /// Copy the raw bytes over
-    Raw(Vec<u8>),
+    Opaque(Vec<u8>),
 
     /// A handshake message
     Handshake(HandshakeMessage),
@@ -210,8 +216,12 @@ pub enum RecordPayload {
 }
 
 impl RecordPayload {
-    pub fn from_raw_slice(bytes: &[u8]) -> Self {
-        Self::Raw(bytes.to_vec())
+    pub fn opaque_from_slice(bytes: &[u8]) -> Self {
+        Self::Opaque(bytes.to_vec())
+    }
+
+    pub fn opaque(data: Vec<u8>) -> Self {
+        Self::Opaque(data)
     }
 }
 
@@ -241,32 +251,41 @@ impl Record {
 
 impl Deserializable for Record {
     fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
-        let mut bytes_parsed: usize = 0;
-        let (content_type, consumed) = ContentType::try_deserialize(buffer)?;
-        let buffer = buffer.get(consumed..).expect("Unexpected buffer overflow");
-        bytes_parsed += consumed;
-
-        let (protocol_version, consumed) = ProtocolVersion::try_deserialize(buffer)?;
-        let buffer = buffer.get(consumed..).expect("Unexpected buffer overflow");
-        bytes_parsed += consumed;
-
-        let (length, consumed) = U16::try_deserialize(buffer)?;
-        let buffer = buffer.get(consumed..).expect("Unexpected buffer overflow");
-        bytes_parsed += consumed;
-
-        // TODO: for now we will only parse to raw bytes; after individual message type is
-        //   implemented, should parse to the correct message type
-        let length_usize = length.to_usize();
+        let (content_type, content_type_size) = ContentType::try_deserialize(buffer)?;
         let buffer = buffer
-            .get(0..length_usize)
-            .ok_or(DeserializationError::insufficient_data(
-                length_usize,
-                buffer.len(),
-            ))?;
-        let fragment = RecordPayload::from_raw_slice(buffer);
-        bytes_parsed += length.to_usize();
-        let record = Self::new(content_type, protocol_version, length, fragment);
-        return Ok((record, bytes_parsed));
+            .get(content_type_size..)
+            .expect("Unexpected buffer overflow");
+
+        let (protocol_version, protocol_version_size) = ProtocolVersion::try_deserialize(buffer)?;
+        let buffer = buffer
+            .get(protocol_version_size..)
+            .expect("Unexpected buffer overflow");
+
+        let (length, length_size) = U16::try_deserialize(buffer)?;
+        let buffer = buffer
+            .get(length_size..)
+            .expect("Unexpected buffer overflow");
+
+        // TODO: implement other payload types
+        let payload_slice =
+            buffer
+                .get(..length.into())
+                .ok_or(DeserializationError::insufficient_data(
+                    length.into(),
+                    buffer.len(),
+                ))?;
+        let payload = match content_type {
+            ContentType::Handshake => {
+                let (msg, _) = HandshakeMessage::try_deserialize(payload_slice)?;
+                RecordPayload::Handshake(msg)
+            }
+            _ => RecordPayload::opaque(payload_slice.to_vec()),
+        };
+
+        return Ok((
+            Self::new(content_type, protocol_version, length, payload),
+            content_type_size + protocol_version_size + length_size + length.to_usize(),
+        ));
     }
 }
 
@@ -396,30 +415,155 @@ impl Deserializable for CipherSuite {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Extension {}
+pub enum ExtensionType {
+    /// Useful for capturing the raw value and debugging
+    Opaque(U16),
+}
+
+impl Deserializable for ExtensionType {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let (tag, tag_size) = U16::try_deserialize(buffer)?;
+        Ok((Self::Opaque(tag), tag_size))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExtensionPayload {
+    Opaque(Vec<u8>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Extension {
+    ext_type: ExtensionType,
+    length: U16,
+    payload: ExtensionPayload,
+}
+
+impl Deserializable for Extension {
+    /// For now only parse to raw values; later on implement the individual extensions
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let (ext_type, tag_size) = ExtensionType::try_deserialize(buffer)?;
+        let buffer = buffer.get(tag_size..).expect("Unexpected out-of-bound");
+        let (length, length_size) = U16::try_deserialize(buffer)?;
+        let buffer = buffer.get(length_size..).expect("Unexpected out-of-bound");
+        let data_slice = match buffer.get(0..(length.into())) {
+            None => {
+                return Err(DeserializationError::insufficient_data(
+                    length.into(),
+                    buffer.len(),
+                ))
+            }
+            Some(slice) => slice,
+        };
+        let payload = ExtensionPayload::Opaque(data_slice.to_vec());
+
+        return Ok((
+            Extension {
+                ext_type,
+                length,
+                payload,
+            },
+            tag_size + length_size + length.to_usize(),
+        ));
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Random([u8; 32]);
+
+impl Random {
+    pub const BYTES: usize = 32;
+
+    pub fn from_slice(slice: &[u8]) -> Self {
+        assert_eq!(slice.len(), Self::BYTES);
+        let mut random = [0u8; 32];
+        random.copy_from_slice(slice);
+        return Self(random);
+    }
+}
+
+impl Deserializable for Random {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let random = match buffer.get(..Self::BYTES) {
+            None => {
+                return Err(DeserializationError::insufficient_data(
+                    Self::BYTES,
+                    buffer.len(),
+                ));
+            }
+            Some(slice) => Random::from_slice(slice),
+        };
+
+        return Ok((random, Self::BYTES));
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientHelloPayload {
     /// Always 0x0303 (Tls1.2) for compatibility reason
     legacy_version: ProtocolVersion,
 
-    random: [u8; 30],
+    /// 32 bytes of entropy
+    random: Random,
 
-    legacy_session_id: Vec<u8>,
+    /// Always an empty list in TLS 1.3
+    legacy_session_id: Vector<U8, U8>,
 
-    // TODO: both cipher_suites and extensions are "vectors of deserializable objects", which takes
-    // a "length" + [objects] structure. Perhaps we can do a generic implementation
-    // impl<U: Deserializable> Deserializable for Vec<U>
-    cipher_suites: Vec<CipherSuite>,
+    cipher_suites: Vector<CipherSuite, U16>,
 
-    legacy_compression_method: Vec<u8>,
+    legacy_compression_method: Vector<U8, U8>,
 
-    extensions: Vec<Extension>,
+    extensions: Vector<Extension, U16>,
 }
 
 impl Deserializable for ClientHelloPayload {
-    fn try_deserialize(_buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
-        todo!();
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let (protocol_ver, protocol_ver_size) = ProtocolVersion::try_deserialize(buffer)?;
+        assert_eq!(protocol_ver_size, 2);
+        let buffer = buffer
+            .get(protocol_ver_size..)
+            .expect("Unexpected out-of-bound error");
+
+        let (random, random_size) = Random::try_deserialize(buffer)?;
+        assert_eq!(random_size, 32);
+        let buffer = buffer
+            .get(random_size..)
+            .expect("Unexpected out-of-bound error");
+
+        let (session_id, session_id_size) = Vector::<U8, U8>::try_deserialize(buffer)?;
+        let buffer = buffer
+            .get(session_id_size..)
+            .expect("Unexpected out-of-bound error");
+
+        let (cipher_suites, cipher_suites_size) =
+            Vector::<CipherSuite, U16>::try_deserialize(buffer)?;
+        let buffer = buffer
+            .get(cipher_suites_size..)
+            .expect("Unexpected out-of-bound error");
+
+        let (compression, compression_size) = Vector::<U8, U8>::try_deserialize(buffer)?;
+        let buffer = buffer
+            .get(compression_size..)
+            .expect("Unexpected out-of-bound error");
+
+        let (ext, ext_size) = Vector::<Extension, U16>::try_deserialize(buffer)?;
+
+        return Ok((
+            Self {
+                legacy_version: protocol_ver,
+                random,
+                legacy_session_id: session_id,
+                cipher_suites,
+                legacy_compression_method: compression,
+                extensions: ext,
+            },
+            protocol_ver_size
+                + random_size
+                + session_id_size
+                + cipher_suites_size
+                + compression_size
+                + ext_size,
+        ));
     }
 }
 
@@ -466,6 +610,83 @@ impl Deserializable for HandshakeMessage {
 mod tests {
     use super::*;
 
+    const CLIENT_HELLO_BYTES: [u8; 243] = [
+        0x16, 0x03, 0x01, 0x00, 0xEE, 0x01, 0x00, 0x00, 0xEA, 0x03, 0x03, 0x30, 0x3E, 0xB7, 0xF6,
+        0x6F, 0xAC, 0x63, 0x01, 0xFE, 0x65, 0x33, 0xB1, 0xB6, 0xCC, 0xBC, 0x63, 0x63, 0x67, 0x46,
+        0x17, 0x6B, 0xEC, 0x1A, 0x47, 0x2B, 0xB3, 0x8C, 0xBE, 0xFC, 0x84, 0xAD, 0x11, 0x20, 0x3E,
+        0x80, 0xEA, 0xAB, 0x85, 0x9A, 0xD5, 0x3C, 0x6B, 0xFA, 0x3A, 0xB3, 0x41, 0x41, 0x67, 0x41,
+        0xF1, 0x0C, 0x5F, 0x5F, 0xCE, 0x12, 0x67, 0x05, 0xD5, 0xF3, 0xB4, 0x91, 0xC3, 0xED, 0x73,
+        0x06, 0x00, 0x14, 0x13, 0x02, 0x13, 0x01, 0x13, 0x03, 0xC0, 0x2C, 0xC0, 0x2B, 0xCC, 0xA9,
+        0xC0, 0x30, 0xC0, 0x2F, 0xCC, 0xA8, 0x00, 0xFF, 0x01, 0x00, 0x00, 0x8D, 0x00, 0x0D, 0x00,
+        0x16, 0x00, 0x14, 0x06, 0x03, 0x05, 0x03, 0x04, 0x03, 0x08, 0x07, 0x08, 0x06, 0x08, 0x05,
+        0x08, 0x04, 0x06, 0x01, 0x05, 0x01, 0x04, 0x01, 0x00, 0x0B, 0x00, 0x02, 0x01, 0x00, 0x00,
+        0x05, 0x00, 0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x17, 0x00, 0x00, 0x00, 0x0A, 0x00,
+        0x08, 0x00, 0x06, 0x00, 0x1D, 0x00, 0x17, 0x00, 0x18, 0x00, 0x2D, 0x00, 0x02, 0x01, 0x01,
+        0x00, 0x33, 0x00, 0x26, 0x00, 0x24, 0x00, 0x1D, 0x00, 0x20, 0xC9, 0x95, 0x87, 0x67, 0xE3,
+        0x8D, 0x0D, 0x6E, 0xF9, 0x5A, 0x71, 0x97, 0xAE, 0xF7, 0x95, 0x23, 0x6A, 0x0E, 0xB3, 0x4B,
+        0x30, 0x43, 0x9B, 0x93, 0xBF, 0xAF, 0x25, 0xAB, 0x75, 0xEF, 0x40, 0x10, 0x00, 0x23, 0x00,
+        0x00, 0x00, 0x2B, 0x00, 0x05, 0x04, 0x03, 0x04, 0x03, 0x03, 0x00, 0x00, 0x00, 0x13, 0x00,
+        0x11, 0x00, 0x00, 0x0E, 0x61, 0x70, 0x69, 0x2E, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2E,
+        0x63, 0x6F, 0x6D,
+    ];
+
+    #[test]
+    fn parse_client_hello() {
+        let (record, consumed) = Record::try_deserialize(&CLIENT_HELLO_BYTES).unwrap();
+        assert_eq!(consumed, 243);
+
+        assert_eq!(record.content_type, ContentType::Handshake);
+        assert_eq!(record.legacy_record_version, ProtocolVersion::Tls1_0);
+        assert_eq!(record.length, U16(0xee));
+
+        let handshake_msg = match record.payload {
+            RecordPayload::Handshake(msg) => msg,
+            _ => panic!("Expected handshake message, found {:?}", record.payload),
+        };
+        assert_eq!(handshake_msg.msg_type, HandshakeType::ClientHello);
+        assert_eq!(handshake_msg.length, U24(0x0000ea));
+
+        let ch_payload = match handshake_msg.payload {
+            HandshakeMessagePayload::ClientHello(payload) => payload,
+            _ => panic!(
+                "Expected ClientHelloPayload, found {:?}",
+                handshake_msg.payload
+            ),
+        };
+        assert_eq!(ch_payload.legacy_version, ProtocolVersion::Tls1_2);
+        assert_eq!(
+            ch_payload.random.0,
+            [
+                0x30, 0x3E, 0xB7, 0xF6, 0x6F, 0xAC, 0x63, 0x01, 0xFE, 0x65, 0x33, 0xB1, 0xB6, 0xCC,
+                0xBC, 0x63, 0x63, 0x67, 0x46, 0x17, 0x6B, 0xEC, 0x1A, 0x47, 0x2B, 0xB3, 0x8C, 0xBE,
+                0xFC, 0x84, 0xAD, 0x11
+            ]
+        );
+        assert_eq!(ch_payload.legacy_session_id.len(), 32);
+        // assert_eq!(ch_payload.legacy_session_id.elems_slice(), &[]);
+
+        assert_eq!(ch_payload.cipher_suites.len(), 20);
+        assert_eq!(
+            ch_payload.cipher_suites.elems_slice(),
+            &[
+                CipherSuite::TLS_AES_256_GCM_SHA384,
+                CipherSuite::TLS_AES_128_GCM_SHA256,
+                CipherSuite::TLS_CHACHA20_POLY1305_SHA256,
+                CipherSuite::UnsupportedSuite(0xC0, 0x2C),
+                CipherSuite::UnsupportedSuite(0xC0, 0x2B),
+                CipherSuite::UnsupportedSuite(0xCC, 0xA9),
+                CipherSuite::UnsupportedSuite(0xC0, 0x30),
+                CipherSuite::UnsupportedSuite(0xC0, 0x2F),
+                CipherSuite::UnsupportedSuite(0xCC, 0xA8),
+                CipherSuite::UnsupportedSuite(0x00, 0xFF),
+            ]
+        );
+        assert_eq!(ch_payload.legacy_compression_method.len(), 1);
+        assert_eq!(ch_payload.legacy_compression_method.elems_slice(), &[U8(0)]);
+        assert_eq!(ch_payload.extensions.len(), 141);
+        assert_eq!(ch_payload.extensions.elems_slice().len(), 10);
+    }
+
     // TODO: test parsing bad inputs
     #[test]
     fn parse_record_to_raw_bytes() {
@@ -474,7 +695,7 @@ mod tests {
         assert_eq!(record.content_type, ContentType::Handshake);
         assert_eq!(record.legacy_record_version, ProtocolVersion::Tls1_0);
         assert_eq!(record.length, U16(2));
-        assert_eq!(record.payload, RecordPayload::from_raw_slice(&[0u8; 2]));
+        assert_eq!(record.payload, RecordPayload::opaque(vec![0u8; 2]));
     }
 
     #[test]
