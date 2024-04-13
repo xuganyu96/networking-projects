@@ -1,7 +1,8 @@
 - [x] Capture TLS handshake in hex
 - [x] Read the captured hex and decide which structs to implement
 - [ ] Implement ClientHello parsing
-    - [ ] Consider providing a generic variable-length vector implementation
+    - [x] Consider providing a generic variable-length vector implementation
+    - [ ] Implement the extensions found in [sample handshake](./sample-handshake.md)
 
 **Niceties**:
 - Implement `Serialize` and `Deserialize` for the data structures

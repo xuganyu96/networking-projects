@@ -418,18 +418,103 @@ impl Deserializable for CipherSuite {
 pub enum ExtensionType {
     /// Useful for capturing the raw value and debugging
     Opaque(U16),
+
+    /// Supported Signatures: 0x000D
+    SignatureAlgorithms,
 }
 
 impl Deserializable for ExtensionType {
     fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
         let (tag, tag_size) = U16::try_deserialize(buffer)?;
-        Ok((Self::Opaque(tag), tag_size))
+        let ext_type = match tag {
+            U16(0x000D) => Self::SignatureAlgorithms,
+            _ => Self::Opaque(tag),
+        };
+        Ok((ext_type, tag_size))
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExtensionPayload {
     Opaque(Vec<u8>),
+
+    SignatureAlgorithms(SignatureAlgorithmsPayload),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignatureAlgorithmsPayload {
+    signature_algorithms: Vector<SignatureAlgorithm, U16>,
+}
+
+impl Deserializable for SignatureAlgorithmsPayload {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let (signature_algorithms, size) =
+            Vector::<SignatureAlgorithm, U16>::try_deserialize(buffer)?;
+        return Ok((
+            Self {
+                signature_algorithms,
+            },
+            size,
+        ));
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+#[allow(non_camel_case_types)]
+pub enum SignatureAlgorithm {
+    /// 0x0603
+    ECDSA_SECP521R1_SHA512,
+    /// 0x0503
+    ECDSA_SECP384R1_SHA384,
+    /// 0x0403
+    ECDSA_SECP256R1_SHA256,
+    /// 0x0807
+    ED25519,
+    /// 0x0806
+    RSA_PSS_RSAE_SHA512,
+    /// 0x0805
+    RSA_PSS_RSAE_SHA384,
+    /// 0x0804
+    RSA_PSS_RSAE_SHA256,
+    /// 0x0601
+    RSA_PKCS1_SHA512,
+    /// 0x0501
+    RSA_PKCS1_SHA384,
+    /// 0x0401
+    RSA_PKCS1_SHA256,
+}
+
+impl SignatureAlgorithm {
+    pub const BYTES: usize = 2;
+}
+
+impl Deserializable for SignatureAlgorithm {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let encoding = buffer
+            .get(..2)
+            .ok_or(DeserializationError::insufficient_data(
+                Self::BYTES,
+                buffer.len(),
+            ))?;
+
+        let sigalg = match *encoding {
+            [0x06, 0x03] => Self::ECDSA_SECP521R1_SHA512,
+            [0x05, 0x03] => Self::ECDSA_SECP384R1_SHA384,
+            [0x04, 0x03] => Self::ECDSA_SECP256R1_SHA256,
+            [0x08, 0x07] => Self::ED25519,
+            [0x08, 0x06] => Self::RSA_PSS_RSAE_SHA512,
+            [0x08, 0x05] => Self::RSA_PSS_RSAE_SHA384,
+            [0x08, 0x04] => Self::RSA_PSS_RSAE_SHA256,
+            [0x06, 0x01] => Self::RSA_PSS_RSAE_SHA512,
+            [0x05, 0x01] => Self::RSA_PSS_RSAE_SHA384,
+            [0x04, 0x01] => Self::RSA_PSS_RSAE_SHA256,
+            _ => {
+                return Err(DeserializationError::InvalidEnumEncoding);
+            }
+        };
+
+        return Ok((sigalg, Self::BYTES));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -455,7 +540,14 @@ impl Deserializable for Extension {
             }
             Some(slice) => slice,
         };
-        let payload = ExtensionPayload::Opaque(data_slice.to_vec());
+        let payload = match ext_type {
+            ExtensionType::SignatureAlgorithms => {
+                let (sigalgs_payload, _sigalgs_size) =
+                    SignatureAlgorithmsPayload::try_deserialize(data_slice)?;
+                ExtensionPayload::SignatureAlgorithms(sigalgs_payload)
+            }
+            ExtensionType::Opaque(_) => ExtensionPayload::Opaque(data_slice.to_vec()),
+        };
 
         return Ok((
             Extension {
@@ -685,6 +777,24 @@ mod tests {
         assert_eq!(ch_payload.legacy_compression_method.elems_slice(), &[U8(0)]);
         assert_eq!(ch_payload.extensions.len(), 141);
         assert_eq!(ch_payload.extensions.elems_slice().len(), 10);
+
+        // Check individual extenions
+        let ext = ch_payload
+            .extensions
+            .elems_slice()
+            .get(0)
+            .expect("extensions[0] did not exist");
+        assert_eq!(ext.ext_type, ExtensionType::SignatureAlgorithms);
+        assert_eq!(ext.length, U16(0x0016));
+        let payload = match &ext.payload {
+            ExtensionPayload::SignatureAlgorithms(algs) => algs,
+            _ => panic!(
+                "Expected signature algorithms payload, found {:?}",
+                ext.payload
+            ),
+        };
+        assert_eq!(payload.signature_algorithms.len(), U16(0x0014).into());
+        assert_eq!(payload.signature_algorithms.elems_slice().len(), 10);
     }
 
     // TODO: test parsing bad inputs
