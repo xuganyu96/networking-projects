@@ -427,6 +427,9 @@ pub enum ExtensionType {
 
     /// Supported Groups: 0x000A
     SupportedGroups,
+
+    /// PSK Key Exchange Mode: 0x002D
+    PskKeyExchangeModes,
 }
 
 impl Deserializable for ExtensionType {
@@ -436,6 +439,7 @@ impl Deserializable for ExtensionType {
             U16(0x000D) => Self::SignatureAlgorithms,
             U16(0x0005) => Self::StatusRequest,
             U16(0x000A) => Self::SupportedGroups,
+            U16(0x002D) => Self::PskKeyExchangeModes,
             _ => Self::Opaque(tag),
         };
         Ok((ext_type, tag_size))
@@ -447,6 +451,7 @@ pub enum ExtensionPayload {
     Opaque(Vec<u8>),
     SignatureAlgorithms(Vector<SignatureAlgorithm, U16>),
     SupportedGroups(Vector<NamedGroup, U16>),
+    PskKeyExchangeModes(Vector<PskKeyExchangeMode, U8>),
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -472,6 +477,7 @@ pub enum SignatureAlgorithm {
     RSA_PKCS1_SHA384,
     /// 0x0401
     RSA_PKCS1_SHA256,
+    Unsupported([u8; 2]),
 }
 
 impl SignatureAlgorithm {
@@ -499,7 +505,9 @@ impl Deserializable for SignatureAlgorithm {
             [0x05, 0x01] => Self::RSA_PSS_RSAE_SHA384,
             [0x04, 0x01] => Self::RSA_PSS_RSAE_SHA256,
             _ => {
-                return Err(DeserializationError::InvalidEnumEncoding);
+                let mut unsupported_encoding = [0u8; 2];
+                unsupported_encoding.copy_from_slice(encoding);
+                Self::Unsupported(unsupported_encoding)
             }
         };
 
@@ -568,6 +576,39 @@ impl Deserializable for NamedGroup {
     }
 }
 
+#[allow(non_camel_case_types)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum PskKeyExchangeMode {
+    /// 0x00, PSK-only key establishment
+    PSK_KE,
+    /// 0x01, PSK with (EC)DHE key establishment
+    PSK_DHE_KE,
+}
+
+impl PskKeyExchangeMode {
+    pub const BYTES: usize = 1;
+}
+
+impl Deserializable for PskKeyExchangeMode {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let encoding = buffer
+            .get(0)
+            .ok_or(DeserializationError::insufficient_data(
+                Self::BYTES,
+                buffer.len(),
+            ))?;
+        let mode = match *encoding {
+            0x00 => Self::PSK_KE,
+            0x01 => Self::PSK_DHE_KE,
+            _ => {
+                return Err(DeserializationError::InvalidEnumEncoding);
+            }
+        };
+
+        return Ok((mode, Self::BYTES));
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Extension {
     ext_type: ExtensionType,
@@ -592,6 +633,7 @@ impl Deserializable for Extension {
             Some(slice) => slice,
         };
         let payload = match ext_type {
+            ExtensionType::Opaque(_) => ExtensionPayload::Opaque(data_slice.to_vec()),
             ExtensionType::SignatureAlgorithms => {
                 let (sigalgs_payload, _) =
                     Vector::<SignatureAlgorithm, U16>::try_deserialize(data_slice)?;
@@ -599,10 +641,13 @@ impl Deserializable for Extension {
             }
             // TODO: I don't fully understand status_request, so its data will remain opaque
             ExtensionType::StatusRequest => ExtensionPayload::Opaque(data_slice.to_vec()),
-            ExtensionType::Opaque(_) => ExtensionPayload::Opaque(data_slice.to_vec()),
             ExtensionType::SupportedGroups => {
                 let (named_groups, _) = Vector::<NamedGroup, U16>::try_deserialize(data_slice)?;
                 ExtensionPayload::SupportedGroups(named_groups)
+            }
+            ExtensionType::PskKeyExchangeModes => {
+                let (modes, _) = Vector::<PskKeyExchangeMode, U8>::try_deserialize(data_slice)?;
+                ExtensionPayload::PskKeyExchangeModes(modes)
             }
         };
 
@@ -903,6 +948,22 @@ mod tests {
         assert_eq!(named_groups.elems_slice()[0], NamedGroup::X25519);
         assert_eq!(named_groups.elems_slice()[1], NamedGroup::SECP256R1);
         assert_eq!(named_groups.elems_slice()[2], NamedGroup::SECP384R1);
+
+        // extensions[5] is psk_key_exchange_modes
+        let ext = ch_payload
+            .extensions
+            .elems_slice()
+            .get(5)
+            .expect("extensions[5] did not exist");
+        assert_eq!(ext.ext_type, ExtensionType::PskKeyExchangeModes);
+        assert_eq!(ext.length, U16(2));
+        let modes = match &ext.payload {
+            ExtensionPayload::PskKeyExchangeModes(modes) => modes,
+            _ => panic!("Expected PskKeyExchangeModes, found {:?}", ext.payload),
+        };
+        assert_eq!(modes.len(), 1);
+        assert_eq!(modes.elems_slice().len(), 1);
+        assert_eq!(modes.elems_slice()[0], PskKeyExchangeMode::PSK_DHE_KE);
     }
 
     #[test]
