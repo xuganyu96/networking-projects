@@ -430,6 +430,9 @@ pub enum ExtensionType {
 
     /// PSK Key Exchange Mode: 0x002D
     PskKeyExchangeModes,
+
+    /// Key Share: 0x0033
+    KeyShare,
 }
 
 impl Deserializable for ExtensionType {
@@ -440,6 +443,7 @@ impl Deserializable for ExtensionType {
             U16(0x0005) => Self::StatusRequest,
             U16(0x000A) => Self::SupportedGroups,
             U16(0x002D) => Self::PskKeyExchangeModes,
+            U16(0x0033) => Self::KeyShare,
             _ => Self::Opaque(tag),
         };
         Ok((ext_type, tag_size))
@@ -452,6 +456,7 @@ pub enum ExtensionPayload {
     SignatureAlgorithms(Vector<SignatureAlgorithm, U16>),
     SupportedGroups(Vector<NamedGroup, U16>),
     PskKeyExchangeModes(Vector<PskKeyExchangeMode, U8>),
+    KeyShare(KeySharePayload),
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -610,6 +615,52 @@ impl Deserializable for PskKeyExchangeMode {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct KeyShareEntry {
+    group: NamedGroup,
+    key_exchange: Vector<U8, U16>,
+}
+
+impl KeyShareEntry {
+    /// Copy the key_exchange data onto a new vector
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.key_exchange
+            .elems_slice()
+            .iter()
+            .map(|byte| byte.0)
+            .collect::<Vec<u8>>()
+    }
+}
+
+impl Deserializable for KeyShareEntry {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let (group, group_size) = NamedGroup::try_deserialize(buffer)?;
+        let buffer = buffer
+            .get(group_size..)
+            .expect("Unexpected out-of-bound error");
+        let (key_exchange, kex_size) = Vector::<U8, U16>::try_deserialize(buffer)?;
+        let entry = Self {
+            group,
+            key_exchange,
+        };
+
+        return Ok((entry, group_size + kex_size));
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum KeySharePayload {
+    /// In client hello, the client sends key share for all the client's supported_groups
+    KeyShareClientHello(Vector<KeyShareEntry, U16>),
+
+    /// In HelloRetryRequest, the server chose a group from the client's supported_groups and
+    /// request the key_share for that group
+    KeyShareHelloRetryRequest(NamedGroup),
+
+    /// In server hello, the server sends the chosen group and the server's key share
+    KeyShareServerHello(KeyShareEntry),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Extension {
     ext_type: ExtensionType,
     length: U16,
@@ -648,6 +699,25 @@ impl Deserializable for Extension {
             ExtensionType::PskKeyExchangeModes => {
                 let (modes, _) = Vector::<PskKeyExchangeMode, U8>::try_deserialize(data_slice)?;
                 ExtensionPayload::PskKeyExchangeModes(modes)
+            }
+            ExtensionType::KeyShare => {
+                // TODO: somehow the parser needs to be aware whether it is parsing a client hello
+                // or a server hello. This naive approach try all three possibilities and pick the
+                // one that correctly parses, but I would like to make things more precise if
+                // possible.
+                if let Ok((key_shares, _)) =
+                    Vector::<KeyShareEntry, U16>::try_deserialize(data_slice)
+                {
+                    ExtensionPayload::KeyShare(KeySharePayload::KeyShareClientHello(key_shares))
+                } else if let Ok((key_share, _)) = KeyShareEntry::try_deserialize(data_slice) {
+                    ExtensionPayload::KeyShare(KeySharePayload::KeyShareServerHello(key_share))
+                } else if let Ok((selected_group, _)) = NamedGroup::try_deserialize(data_slice) {
+                    ExtensionPayload::KeyShare(KeySharePayload::KeyShareHelloRetryRequest(
+                        selected_group,
+                    ))
+                } else {
+                    return Err(DeserializationError::InvalidEnumEncoding);
+                }
             }
         };
 
@@ -964,6 +1034,34 @@ mod tests {
         assert_eq!(modes.len(), 1);
         assert_eq!(modes.elems_slice().len(), 1);
         assert_eq!(modes.elems_slice()[0], PskKeyExchangeMode::PSK_DHE_KE);
+
+        // extensions[6] is client's key_share
+        let ext = ch_payload
+            .extensions
+            .elems_slice()
+            .get(6)
+            .expect("extensions[6] did not exist");
+        assert_eq!(ext.ext_type, ExtensionType::KeyShare);
+        assert_eq!(ext.length, U16(38));
+        let payload = match &ext.payload {
+            ExtensionPayload::KeyShare(payload) => payload,
+            _ => panic!("Expected KeyShare, found {:?}", ext.payload),
+        };
+        let key_shares = match payload {
+            KeySharePayload::KeyShareClientHello(key_shares) => key_shares,
+            _ => panic!("Expected KeyShareClientHello, found {:?}", payload),
+        };
+        assert_eq!(key_shares.len(), 36);
+        let key_share = key_shares.elems_slice().get(0).unwrap();
+        assert_eq!(key_share.group, NamedGroup::X25519);
+        assert_eq!(
+            key_share.to_vec(),
+            vec![
+                0xC9, 0x95, 0x87, 0x67, 0xE3, 0x8D, 0x0D, 0x6E, 0xF9, 0x5A, 0x71, 0x97, 0xAE, 0xF7,
+                0x95, 0x23, 0x6A, 0x0E, 0xB3, 0x4B, 0x30, 0x43, 0x9B, 0x93, 0xBF, 0xAF, 0x25, 0xAB,
+                0x75, 0xEF, 0x40, 0x10
+            ]
+        );
     }
 
     #[test]
