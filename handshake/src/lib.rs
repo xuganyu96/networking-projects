@@ -1062,6 +1062,16 @@ mod tests {
                 0x75, 0xEF, 0x40, 0x10
             ]
         );
+
+        // extensions[7] is unsupported
+        let ext = ch_payload
+            .extensions
+            .elems_slice()
+            .get(7)
+            .expect("extensions[1] did not exist");
+        assert_eq!(ext.ext_type, ExtensionType::Opaque(U16(0x0023)));
+        assert_eq!(ext.length, U16(0));
+        assert_eq!(ext.payload, ExtensionPayload::Opaque(vec![]));
     }
 
     #[test]
