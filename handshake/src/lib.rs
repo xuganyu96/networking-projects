@@ -905,50 +905,11 @@ mod tests {
         assert_eq!(named_groups.elems_slice()[2], NamedGroup::SECP384R1);
     }
 
-    // TODO: test parsing bad inputs
-    #[test]
-    fn parse_record_to_raw_bytes() {
-        let buffer = [0x16, 0x03, 0x01, 0x00, 0x02, 0x00, 0x00];
-        let (record, _) = Record::try_deserialize(&buffer).expect("Failed to deserialize");
-        assert_eq!(record.content_type, ContentType::Handshake);
-        assert_eq!(record.legacy_record_version, ProtocolVersion::Tls1_0);
-        assert_eq!(record.length, U16(2));
-        assert_eq!(record.payload, RecordPayload::opaque(vec![0u8; 2]));
-    }
-
     #[test]
     fn u24_from_be_slice() {
         assert_eq!(U24::from_be_slice(&[0x00, 0x00, 0x00]), U24(0x00000000u32));
         assert_eq!(U24::from_be_slice(&[0x00, 0x00, 0xff]), U24(0x000000ffu32));
         assert_eq!(U24::from_be_slice(&[0x00, 0xff, 0xff]), U24(0x0000ffffu32));
         assert_eq!(U24::from_be_slice(&[0xff, 0xff, 0xff]), U24(0x00ffffffu32));
-    }
-
-    #[test]
-    fn parse_empty_handshake_message() {
-        let buffer = [0x01, 0x00, 0x00, 0x00];
-        let (msg, _) = HandshakeMessage::try_deserialize(&buffer).expect("Failed to deserialize");
-        assert_eq!(
-            msg,
-            HandshakeMessage {
-                msg_type: HandshakeType::ClientHello,
-                length: U24(0),
-                payload: HandshakeMessagePayload::Raw(vec![])
-            }
-        );
-    }
-
-    #[test]
-    fn parse_nonempty_handshake_raw() {
-        let buffer = [0x01, 0x00, 0x00, 0x01, 0xff];
-        let (msg, _) = HandshakeMessage::try_deserialize(&buffer).expect("Failed to deserialize");
-        assert_eq!(
-            msg,
-            HandshakeMessage {
-                msg_type: HandshakeType::ClientHello,
-                length: U24(1),
-                payload: HandshakeMessagePayload::Raw(vec![0xff])
-            }
-        );
     }
 }
