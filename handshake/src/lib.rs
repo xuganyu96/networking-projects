@@ -421,6 +421,12 @@ pub enum ExtensionType {
 
     /// Supported Signatures: 0x000D
     SignatureAlgorithms,
+
+    /// Certificate status request: 0x0005
+    StatusRequest,
+
+    /// Supported Groups: 0x000A
+    SupportedGroups,
 }
 
 impl Deserializable for ExtensionType {
@@ -428,6 +434,8 @@ impl Deserializable for ExtensionType {
         let (tag, tag_size) = U16::try_deserialize(buffer)?;
         let ext_type = match tag {
             U16(0x000D) => Self::SignatureAlgorithms,
+            U16(0x0005) => Self::StatusRequest,
+            U16(0x000A) => Self::SupportedGroups,
             _ => Self::Opaque(tag),
         };
         Ok((ext_type, tag_size))
@@ -437,26 +445,8 @@ impl Deserializable for ExtensionType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExtensionPayload {
     Opaque(Vec<u8>),
-
-    SignatureAlgorithms(SignatureAlgorithmsPayload),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SignatureAlgorithmsPayload {
-    signature_algorithms: Vector<SignatureAlgorithm, U16>,
-}
-
-impl Deserializable for SignatureAlgorithmsPayload {
-    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
-        let (signature_algorithms, size) =
-            Vector::<SignatureAlgorithm, U16>::try_deserialize(buffer)?;
-        return Ok((
-            Self {
-                signature_algorithms,
-            },
-            size,
-        ));
-    }
+    SignatureAlgorithms(Vector<SignatureAlgorithm, U16>),
+    SupportedGroups(Vector<NamedGroup, U16>),
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -517,6 +507,67 @@ impl Deserializable for SignatureAlgorithm {
     }
 }
 
+#[allow(non_camel_case_types)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum NamedGroup {
+    /// 0x0017
+    SECP256R1,
+    /// 0x0018
+    SECP384R1,
+    /// 0x0019
+    SECP521R1,
+    /// 0x001D
+    X25519,
+    /// 0x001E
+    X448,
+    /// 0x0100
+    FFDHE2048,
+    /// 0x0101
+    FFDHE3072,
+    /// 0x0102
+    FFDHE4096,
+    /// 0x0103
+    FFDHE6144,
+    /// 0x0104
+    FFDHE8192,
+    /// Everything else
+    Unsupported([u8; 2]),
+}
+
+impl NamedGroup {
+    pub const BYTES: usize = 2;
+}
+
+impl Deserializable for NamedGroup {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let encoding = buffer
+            .get(..Self::BYTES)
+            .ok_or(DeserializationError::insufficient_data(
+                Self::BYTES,
+                buffer.len(),
+            ))?;
+        let named_group = match *encoding {
+            [0x00, 0x17] => Self::SECP256R1,
+            [0x00, 0x18] => Self::SECP384R1,
+            [0x00, 0x19] => Self::SECP521R1,
+            [0x00, 0x1D] => Self::X25519,
+            [0x00, 0x1E] => Self::X448,
+            [0x01, 0x00] => Self::FFDHE2048,
+            [0x01, 0x01] => Self::FFDHE3072,
+            [0x01, 0x02] => Self::FFDHE4096,
+            [0x01, 0x03] => Self::FFDHE6144,
+            [0x01, 0x04] => Self::FFDHE8192,
+            _ => {
+                let mut unsupported_encoding = [0u8; 2];
+                unsupported_encoding.copy_from_slice(encoding);
+                NamedGroup::Unsupported(unsupported_encoding)
+            }
+        };
+
+        return Ok((named_group, Self::BYTES));
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Extension {
     ext_type: ExtensionType,
@@ -542,11 +593,17 @@ impl Deserializable for Extension {
         };
         let payload = match ext_type {
             ExtensionType::SignatureAlgorithms => {
-                let (sigalgs_payload, _sigalgs_size) =
-                    SignatureAlgorithmsPayload::try_deserialize(data_slice)?;
+                let (sigalgs_payload, _) =
+                    Vector::<SignatureAlgorithm, U16>::try_deserialize(data_slice)?;
                 ExtensionPayload::SignatureAlgorithms(sigalgs_payload)
             }
+            // TODO: I don't fully understand status_request, so its data will remain opaque
+            ExtensionType::StatusRequest => ExtensionPayload::Opaque(data_slice.to_vec()),
             ExtensionType::Opaque(_) => ExtensionPayload::Opaque(data_slice.to_vec()),
+            ExtensionType::SupportedGroups => {
+                let (named_groups, _) = Vector::<NamedGroup, U16>::try_deserialize(data_slice)?;
+                ExtensionPayload::SupportedGroups(named_groups)
+            }
         };
 
         return Ok((
@@ -793,8 +850,59 @@ mod tests {
                 ext.payload
             ),
         };
-        assert_eq!(payload.signature_algorithms.len(), U16(0x0014).into());
-        assert_eq!(payload.signature_algorithms.elems_slice().len(), 10);
+        assert_eq!(payload.len(), U16(0x0014).into());
+        assert_eq!(payload.elems_slice().len(), 10);
+
+        // The second extension is not supported in TLS 1.3
+        let ext = ch_payload
+            .extensions
+            .elems_slice()
+            .get(1)
+            .expect("extensions[1] did not exist");
+        assert_eq!(ext.ext_type, ExtensionType::Opaque(U16(0x000B)));
+        assert_eq!(ext.length, U16(2));
+        assert_eq!(ext.payload, ExtensionPayload::Opaque(vec![0x01, 0x00]));
+
+        // extensions[2] is status_request
+        let ext = ch_payload
+            .extensions
+            .elems_slice()
+            .get(2)
+            .expect("extensions[2] did not exist");
+        assert_eq!(ext.ext_type, ExtensionType::StatusRequest);
+        assert_eq!(ext.length, U16(5));
+        assert_eq!(
+            ext.payload,
+            ExtensionPayload::Opaque(vec![0x01, 0x00, 0x00, 0x00, 0x00])
+        );
+
+        // extensions[3] is not supported
+        let ext = ch_payload
+            .extensions
+            .elems_slice()
+            .get(3)
+            .expect("extensions[1] did not exist");
+        assert_eq!(ext.ext_type, ExtensionType::Opaque(U16(0x0017)));
+        assert_eq!(ext.length, U16(0));
+        assert_eq!(ext.payload, ExtensionPayload::Opaque(vec![]));
+
+        // extensions[4] is supported_groups
+        let ext = ch_payload
+            .extensions
+            .elems_slice()
+            .get(4)
+            .expect("extensions[4] did not exist");
+        assert_eq!(ext.ext_type, ExtensionType::SupportedGroups);
+        assert_eq!(ext.length, U16(8));
+        let named_groups = match &ext.payload {
+            ExtensionPayload::SupportedGroups(named_groups) => named_groups,
+            _ => panic!("Expected SupportedGroups, found {:?}", ext.payload),
+        };
+        assert_eq!(named_groups.len(), U16(6).into());
+        assert_eq!(named_groups.elems_slice().len(), 3);
+        assert_eq!(named_groups.elems_slice()[0], NamedGroup::X25519);
+        assert_eq!(named_groups.elems_slice()[1], NamedGroup::SECP256R1);
+        assert_eq!(named_groups.elems_slice()[2], NamedGroup::SECP384R1);
     }
 
     // TODO: test parsing bad inputs
