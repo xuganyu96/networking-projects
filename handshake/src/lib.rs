@@ -433,6 +433,9 @@ pub enum ExtensionType {
 
     /// Key Share: 0x0033
     KeyShare,
+
+    /// Supported Versions: 0x002B
+    SupportedVersions,
 }
 
 impl Deserializable for ExtensionType {
@@ -444,6 +447,7 @@ impl Deserializable for ExtensionType {
             U16(0x000A) => Self::SupportedGroups,
             U16(0x002D) => Self::PskKeyExchangeModes,
             U16(0x0033) => Self::KeyShare,
+            U16(0x002B) => Self::SupportedVersions,
             _ => Self::Opaque(tag),
         };
         Ok((ext_type, tag_size))
@@ -457,6 +461,7 @@ pub enum ExtensionPayload {
     SupportedGroups(Vector<NamedGroup, U16>),
     PskKeyExchangeModes(Vector<PskKeyExchangeMode, U8>),
     KeyShare(KeySharePayload),
+    SupportedVersions(SupportedVersionsPayload),
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -661,6 +666,15 @@ pub enum KeySharePayload {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum SupportedVersionsPayload {
+    /// In client_hello, the data field is a vector of ProtocolVersion that the client supports
+    SupportedVersionsClientHello(Vector<ProtocolVersion, U8>),
+
+    /// In server_hello, the data field is a single ProtocolVersion that the server chose
+    SupportedVersionsServerHello(ProtocolVersion),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Extension {
     ext_type: ExtensionType,
     length: U16,
@@ -715,6 +729,28 @@ impl Deserializable for Extension {
                     ExtensionPayload::KeyShare(KeySharePayload::KeyShareHelloRetryRequest(
                         selected_group,
                     ))
+                } else {
+                    return Err(DeserializationError::InvalidEnumEncoding);
+                }
+            }
+            ExtensionType::SupportedVersions => {
+                // TODO: similar to KeyShare, the "supported_versions" extension's data field is
+                // different between client_hello (where it is a Vector of ProtocolVersion) and
+                // server_hello (where it is a single ProtocolVersion). For now we naively try to
+                // parse with each option and pick the one that can be successfully parsed, but in
+                // future we should be more precise
+                if let Ok((supported_versions, _)) =
+                    Vector::<ProtocolVersion, U8>::try_deserialize(data_slice)
+                {
+                    ExtensionPayload::SupportedVersions(
+                        SupportedVersionsPayload::SupportedVersionsClientHello(supported_versions),
+                    )
+                } else if let Ok((supported_version, _)) =
+                    ProtocolVersion::try_deserialize(data_slice)
+                {
+                    ExtensionPayload::SupportedVersions(
+                        SupportedVersionsPayload::SupportedVersionsServerHello(supported_version),
+                    )
                 } else {
                     return Err(DeserializationError::InvalidEnumEncoding);
                 }
@@ -1072,6 +1108,30 @@ mod tests {
         assert_eq!(ext.ext_type, ExtensionType::Opaque(U16(0x0023)));
         assert_eq!(ext.length, U16(0));
         assert_eq!(ext.payload, ExtensionPayload::Opaque(vec![]));
+
+        // extensions[8] is supported_versions
+        let ext = ch_payload
+            .extensions
+            .elems_slice()
+            .get(8)
+            .expect("extensions[8] did not exist");
+        assert_eq!(ext.ext_type, ExtensionType::SupportedVersions);
+        assert_eq!(ext.length, U16(5));
+        let payload = match &ext.payload {
+            ExtensionPayload::SupportedVersions(payload) => payload,
+            _ => panic!("Expected SupportedGroups, found {:?}", ext.payload),
+        };
+        let versions = match payload {
+            SupportedVersionsPayload::SupportedVersionsClientHello(versions) => versions,
+            _ => panic!(
+                "Expected client hello's supported_groups, found {:?}",
+                payload
+            ),
+        };
+        assert_eq!(versions.len(), 4);
+        assert_eq!(versions.elems_slice().len(), 2);
+        assert_eq!(versions.elems_slice()[0], ProtocolVersion::Tls1_3);
+        assert_eq!(versions.elems_slice()[1], ProtocolVersion::Tls1_2);
     }
 
     #[test]
