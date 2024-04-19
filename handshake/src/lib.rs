@@ -436,6 +436,9 @@ pub enum ExtensionType {
 
     /// Supported Versions: 0x002B
     SupportedVersions,
+
+    /// Server Name: 0x0000
+    ServerName,
 }
 
 impl Deserializable for ExtensionType {
@@ -448,6 +451,7 @@ impl Deserializable for ExtensionType {
             U16(0x002D) => Self::PskKeyExchangeModes,
             U16(0x0033) => Self::KeyShare,
             U16(0x002B) => Self::SupportedVersions,
+            U16(0x0000) => Self::ServerName,
             _ => Self::Opaque(tag),
         };
         Ok((ext_type, tag_size))
@@ -462,6 +466,7 @@ pub enum ExtensionPayload {
     PskKeyExchangeModes(Vector<PskKeyExchangeMode, U8>),
     KeyShare(KeySharePayload),
     SupportedVersions(SupportedVersionsPayload),
+    ServerName(Vector<ServerName, U16>),
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -675,6 +680,68 @@ pub enum SupportedVersionsPayload {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum NameType {
+    /// 0x00
+    HostName,
+}
+
+impl NameType {
+    pub const BYTES: usize = 1;
+}
+
+impl Deserializable for NameType {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let encoding = buffer
+            .get(0)
+            .ok_or(DeserializationError::insufficient_data(
+                Self::BYTES,
+                buffer.len(),
+            ))?;
+        let name_type = match *encoding {
+            0x00 => Self::HostName,
+            _ => {
+                return Err(DeserializationError::InvalidEnumEncoding);
+            }
+        };
+        return Ok((name_type, Self::BYTES));
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ServerName {
+    name_type: NameType,
+    host_name: Vector<U8, U16>,
+}
+
+impl ServerName {
+    /// Convert host_name to a string
+    pub fn to_string(&self) -> Result<String, impl Error> {
+        let bytes = self
+            .host_name
+            .elems_slice()
+            .iter()
+            .map(|byte| byte.0)
+            .collect::<Vec<u8>>();
+        return String::from_utf8(bytes);
+    }
+}
+
+impl Deserializable for ServerName {
+    fn try_deserialize(buffer: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let (name_type, name_type_size) = NameType::try_deserialize(buffer)?;
+        let buffer = buffer
+            .get(name_type_size..)
+            .expect("Unexpected out-of-bound error");
+        let (host_name, host_name_size) = Vector::<U8, U16>::try_deserialize(buffer)?;
+        let server_name = Self {
+            name_type,
+            host_name,
+        };
+        return Ok((server_name, name_type_size + host_name_size));
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Extension {
     ext_type: ExtensionType,
     length: U16,
@@ -754,6 +821,10 @@ impl Deserializable for Extension {
                 } else {
                     return Err(DeserializationError::InvalidEnumEncoding);
                 }
+            }
+            ExtensionType::ServerName => {
+                let (server_name_list, _) = Vector::<ServerName, U16>::try_deserialize(data_slice)?;
+                ExtensionPayload::ServerName(server_name_list)
             }
         };
 
@@ -1104,7 +1175,7 @@ mod tests {
             .extensions
             .elems_slice()
             .get(7)
-            .expect("extensions[1] did not exist");
+            .expect("extensions[7] did not exist");
         assert_eq!(ext.ext_type, ExtensionType::Opaque(U16(0x0023)));
         assert_eq!(ext.length, U16(0));
         assert_eq!(ext.payload, ExtensionPayload::Opaque(vec![]));
@@ -1132,6 +1203,23 @@ mod tests {
         assert_eq!(versions.elems_slice().len(), 2);
         assert_eq!(versions.elems_slice()[0], ProtocolVersion::Tls1_3);
         assert_eq!(versions.elems_slice()[1], ProtocolVersion::Tls1_2);
+
+        // extensions[9] is server_name
+        let ext = ch_payload
+            .extensions
+            .elems_slice()
+            .get(9)
+            .expect("extensions[9] did not exist");
+        assert_eq!(ext.ext_type, ExtensionType::ServerName);
+        assert_eq!(ext.length, U16(19));
+        let server_name_list = match &ext.payload {
+            ExtensionPayload::ServerName(list) => list,
+            _ => panic!("Expected Servername, found {:?}", ext.payload),
+        };
+        assert_eq!(server_name_list.len(), 17);
+        assert_eq!(server_name_list.elems_slice().len(), 1);
+        let server_name = server_name_list.elems_slice().get(0).unwrap();
+        assert_eq!(server_name.to_string().unwrap(), "api.github.com");
     }
 
     #[test]
