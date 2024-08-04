@@ -3,6 +3,7 @@
 - [x] Implement ClientHello parsing
     - [x] Consider providing a generic variable-length vector implementation
     - [x] Implement the extensions found in [sample handshake](./sample-handshake.md)
+- [ ] Modify the binary so that it prints ClientHello in details and the rest of the messages in opaque
 - [ ] Refactor for better organization
 - [ ] Implement ServerHello parsing
 
