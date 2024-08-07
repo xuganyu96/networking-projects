@@ -1,6 +1,10 @@
-- [ ] Implement primitive types
-    - [ ] Test primitive types
+- [x] Implement primitive types
+    - [x] Test primitive types
 - [ ] Implement `Record` type with opaque payload type
+    - [ ] `ProtocolVersion`
+    - [ ] `ContentType`
+    - [ ] `RecordOverflowError` at deserialization
+    - [ ] `Record` type
 - [ ] Implement a binary using `rustls` and parse the handshake up to opaque records
 
 # Handshake
@@ -40,3 +44,39 @@ pub trait Deserializable {
     pub fn deserialize(buffer: &[u8]) -> Result<(Self, usize), SomeErrorType>;
 }
 ```
+
+# Record layer
+Each TLS message is encapsulated in a **record**, which has the following structure:
+
+```rust
+struct Record {
+    content_type: ContentType,
+    protocol_version: ProtocolVersion,
+    length: U16,
+    paylod: Opaque,
+}
+```
+
+Where `ContentType` and `ProtocolVersion` are both enumerated types encoding a small set of possible values:
+
+```rust
+/// Each value is a single byte
+enum ContentType {
+    Invalid,  // 0x00
+    ChangeCipherSpec,  // 0x14
+    Alert,  // 0x15
+    Handshake,  // 0x16
+    ApplicationData,  // 0x17
+}
+
+/// Each value is two-byte wide
+enum ProtocolVersion {
+    // Earlier versions are deprecated
+    Tls_1_2,  // 0x0303
+    Tls_1_3,  // 0x0304
+}
+```
+
+The payload contains arbitrary bytes, although the maximal payload size is $2^{14}$ bytes. If the length field contains a value larger than the maximal payload size, the protocol should send an alert `RecordOverflow` (which should probably translate to some deserialization error).
+
+Both clear messages and encrypted message follow the same structure, so a single struct should suffice for now. We will need to implement the cryptography parts first before we can handle encrypted records.
