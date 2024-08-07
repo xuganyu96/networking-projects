@@ -279,6 +279,46 @@ impl Deserializable for ContentType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub enum ProtocolVersion {
+    Tls_1_2,
+    Tls_1_3,
+}
+
+impl ProtocolVersion {
+    pub const BYTES: usize = 2;
+
+    pub fn to_bytes(&self) -> [u8; Self::BYTES] {
+        match self {
+            Self::Tls_1_2 => [0x03, 0x03],
+            Self::Tls_1_3 => [0x03, 0x04],
+        }
+    }
+}
+
+impl Deserializable for ProtocolVersion {
+    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        buf.write(&self.to_bytes())
+    }
+
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        if buf.len() < Self::BYTES {
+            return Err(DeserializationError::insufficient_buffer_length(
+                Self::BYTES,
+                buf.len(),
+            ));
+        }
+        let protocol_version = match buf[..Self::BYTES] {
+            [0x03, 0x03] => Self::Tls_1_2,
+            [0x03, 0x04] => Self::Tls_1_3,
+            _ => return Err(DeserializationError::InvalidEnumValue),
+        };
+
+        Ok((protocol_version, Self::BYTES))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,6 +387,31 @@ mod tests {
         assert_eq!(
             ContentType::deserialize(&[23]),
             Ok((ContentType::ApplicationData, 1))
+        );
+    }
+
+    #[test]
+    fn protocol_version_serde() {
+        let mut buf = [0u8; ProtocolVersion::BYTES];
+        assert_eq!(ProtocolVersion::Tls_1_2.serialize(&mut buf).unwrap(), 2);
+        assert_eq!(buf, [3, 3]);
+        assert_eq!(ProtocolVersion::Tls_1_3.serialize(&mut buf).unwrap(), 2);
+        assert_eq!(buf, [3, 4]);
+        assert_eq!(
+            ProtocolVersion::deserialize(&[0]),
+            Err(DeserializationError::insufficient_buffer_length(2, 1))
+        );
+        assert_eq!(
+            ProtocolVersion::deserialize(&[0, 0]),
+            Err(DeserializationError::InvalidEnumValue)
+        );
+        assert_eq!(
+            ProtocolVersion::deserialize(&[3, 3]),
+            Ok((ProtocolVersion::Tls_1_2, 2))
+        );
+        assert_eq!(
+            ProtocolVersion::deserialize(&[3, 4]),
+            Ok((ProtocolVersion::Tls_1_3, 2))
         );
     }
 }
