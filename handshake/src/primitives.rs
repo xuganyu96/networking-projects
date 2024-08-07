@@ -227,6 +227,58 @@ where
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContentType {
+    /// 0x00
+    Invalid,
+    /// 0x14
+    ChangeCipherSpec,
+    /// 0x15
+    Alert,
+    /// 0x16
+    Handshake,
+    /// 0x17
+    ApplicationData,
+}
+
+impl ContentType {
+    pub const BYTES: usize = 1;
+
+    pub fn to_bytes(&self) -> [u8; Self::BYTES] {
+        match self {
+            Self::Invalid => [0x00],
+            Self::ChangeCipherSpec => [0x14],
+            Self::Alert => [0x15],
+            Self::Handshake => [0x16],
+            Self::ApplicationData => [0x17],
+        }
+    }
+}
+
+impl Deserializable for ContentType {
+    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        buf.write(&self.to_bytes())
+    }
+
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        if buf.len() < Self::BYTES {
+            return Err(DeserializationError::insufficient_buffer_length(
+                Self::BYTES,
+                buf.len(),
+            ));
+        }
+        let content_type = match buf[0] {
+            0x00 => Self::Invalid,
+            0x14 => Self::ChangeCipherSpec,
+            0x15 => Self::Alert,
+            0x16 => Self::Handshake,
+            0x17 => Self::ApplicationData,
+            _ => return Err(DeserializationError::InvalidEnumValue),
+        };
+        return Ok((content_type, Self::BYTES));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,5 +305,48 @@ mod tests {
         let written = vector.serialize(&mut buffer).unwrap();
         assert_eq!(written, 3);
         assert_eq!(buffer, [2, 255, 255]);
+    }
+
+    #[test]
+    fn content_type_serde() {
+        let mut buf = [0u8];
+        assert_eq!(ContentType::Invalid.serialize(&mut buf).unwrap(), 1);
+        assert_eq!(buf, [0]);
+        assert_eq!(
+            ContentType::ChangeCipherSpec.serialize(&mut buf).unwrap(),
+            1
+        );
+        assert_eq!(buf, [20]);
+        assert_eq!(ContentType::Alert.serialize(&mut buf).unwrap(), 1);
+        assert_eq!(buf, [21]);
+        assert_eq!(ContentType::Handshake.serialize(&mut buf).unwrap(), 1);
+        assert_eq!(buf, [22]);
+        assert_eq!(ContentType::ApplicationData.serialize(&mut buf).unwrap(), 1);
+        assert_eq!(buf, [23]);
+        assert_eq!(
+            ContentType::deserialize(&[]),
+            Err(DeserializationError::insufficient_buffer_length(1, 0))
+        );
+        assert_eq!(
+            ContentType::deserialize(&[1]),
+            Err(DeserializationError::InvalidEnumValue)
+        );
+        assert_eq!(
+            ContentType::deserialize(&[0]),
+            Ok((ContentType::Invalid, 1))
+        );
+        assert_eq!(
+            ContentType::deserialize(&[20]),
+            Ok((ContentType::ChangeCipherSpec, 1))
+        );
+        assert_eq!(ContentType::deserialize(&[21]), Ok((ContentType::Alert, 1)));
+        assert_eq!(
+            ContentType::deserialize(&[22]),
+            Ok((ContentType::Handshake, 1))
+        );
+        assert_eq!(
+            ContentType::deserialize(&[23]),
+            Ok((ContentType::ApplicationData, 1))
+        );
     }
 }

@@ -1,13 +1,16 @@
 use std::error::Error;
 use std::fmt::Display;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeserializationError {
     /// The input buffer has fewer bytes than the type statically needs
     InsufficientBufferLength { expected: usize, found: usize },
 
     /// When parsing a vector, the buffer has fewer bytes than the vector's length indicates
     InsufficientVecData { expected: usize, found: usize },
+
+    /// The encoded bytes do not match any valid enum variants,
+    InvalidEnumValue,
 }
 
 impl DeserializationError {
