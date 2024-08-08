@@ -11,6 +11,9 @@ pub enum DeserializationError {
 
     /// The encoded bytes do not match any valid enum variants,
     InvalidEnumValue,
+
+    /// The length field of a record exceeds 2^14
+    RecordOverflow,
 }
 
 impl DeserializationError {

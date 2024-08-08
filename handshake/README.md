@@ -1,8 +1,8 @@
 - [x] Implement primitive types
     - [x] Test primitive types
-- [ ] Implement `Record` type with opaque payload type
-    - [ ] `ProtocolVersion`
-    - [ ] `ContentType`
+- [x] Implement `Record` type with opaque payload type
+    - [x] `ProtocolVersion`
+    - [x] `ContentType`
     - [ ] `RecordOverflowError` at deserialization
     - [ ] `Record` type
 - [ ] Implement a binary using `rustls` and parse the handshake up to opaque records

@@ -1,6 +1,6 @@
 use crate::{
     traits::{Deserializable, DeserializationError},
-    UNEXPECTED_OUT_OF_BOUND_PANIC,
+    MAX_RECORD_LENGTH, UNEXPECTED_OUT_OF_BOUND_PANIC,
 };
 use std::io::Write;
 
@@ -384,6 +384,9 @@ impl Deserializable for Record {
         buf = buf.get(length_size..).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
 
         let fragment_size: usize = length.into();
+        if fragment_size > MAX_RECORD_LENGTH {
+            return Err(DeserializationError::RecordOverflow);
+        }
         if buf.len() < fragment_size {
             return Err(DeserializationError::insufficient_vec_data(
                 fragment_size,
@@ -517,5 +520,14 @@ mod tests {
         record.serialize(&mut buf).unwrap();
         assert_eq!(buf, expected_buf);
         assert_eq!(Record::deserialize(&expected_buf), Ok((record, 10)));
+
+        assert_eq!(
+            Record::deserialize(&[22, 3, 4, 0, 6, 0, 0, 0, 0, 0]),
+            Err(DeserializationError::insufficient_vec_data(6, 5)),
+        );
+        assert_eq!(
+            Record::deserialize(&[22, 3, 4, 1 << 7, 0, 0, 0, 0, 0, 0]),
+            Err(DeserializationError::RecordOverflow),
+        );
     }
 }
