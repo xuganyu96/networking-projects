@@ -66,6 +66,12 @@ impl From<U16> for usize {
     }
 }
 
+impl std::fmt::Display for U16 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct U24(u32);
 
@@ -285,6 +291,8 @@ impl Deserializable for ContentType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum ProtocolVersion {
+    Tls_1_0,
+    Tls_1_1,
     Tls_1_2,
     Tls_1_3,
 }
@@ -294,8 +302,21 @@ impl ProtocolVersion {
 
     pub fn to_bytes(&self) -> [u8; Self::BYTES] {
         match self {
+            Self::Tls_1_0 => [0x03, 0x01],
+            Self::Tls_1_1 => [0x03, 0x02],
             Self::Tls_1_2 => [0x03, 0x03],
             Self::Tls_1_3 => [0x03, 0x04],
+        }
+    }
+}
+
+impl std::fmt::Display for ProtocolVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Tls_1_0 => write!(f, "<TLS 1.0>"),
+            Self::Tls_1_1 => write!(f, "<TLS 1.1>"),
+            Self::Tls_1_2 => write!(f, "<TLS 1.2>"),
+            Self::Tls_1_3 => write!(f, "<TLS 1.3>"),
         }
     }
 }
@@ -313,6 +334,8 @@ impl Deserializable for ProtocolVersion {
             ));
         }
         let protocol_version = match buf[..Self::BYTES] {
+            [0x03, 0x01] => Self::Tls_1_0,
+            [0x03, 0x02] => Self::Tls_1_1,
             [0x03, 0x03] => Self::Tls_1_2,
             [0x03, 0x04] => Self::Tls_1_3,
             _ => return Err(DeserializationError::InvalidEnumValue),
