@@ -1,3 +1,4 @@
+//! TLS client
 use handshake::record::OpaqueRecord;
 use handshake::traits::Deserializable;
 use std::io::{Read, Write};

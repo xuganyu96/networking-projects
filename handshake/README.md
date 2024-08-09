@@ -5,7 +5,7 @@
     - [x] `ContentType`
     - [x] `RecordOverflowError` at deserialization
     - [x] `Record` type
-- [ ] Implement a binary using `rustls` and parse the handshake up to opaque records
+- [x] Implement a binary using `rustls` and parse the handshake up to opaque records
 
 # Handshake
 I want to better understand the TLS handshake protocol by building **a library for parsing TLS messages**. From here this project can also become a simple TLS client that allows users to tinker with the parameters of a TLS handshake.
