@@ -3,8 +3,8 @@
 - [x] Implement `Record` type with opaque payload type
     - [x] `ProtocolVersion`
     - [x] `ContentType`
-    - [ ] `RecordOverflowError` at deserialization
-    - [ ] `Record` type
+    - [x] `RecordOverflowError` at deserialization
+    - [x] `Record` type
 - [ ] Implement a binary using `rustls` and parse the handshake up to opaque records
 
 # Handshake
