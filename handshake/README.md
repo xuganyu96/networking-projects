@@ -7,6 +7,7 @@
     - [x] `Record` type
 - [x] Implement a binary using `rustls` and parse the handshake up to opaque records
 - [x] Implement top level handshake message parsing, up to opaque HandshakePayload
+- [ ] Think about API design for differentiating `TLSPlaintext` from `TLSCiphertext`
 
 # Handshake
 I want to better understand the TLS handshake protocol by building **a library for parsing TLS messages**. From here this project can also become a simple TLS client that allows users to tinker with the parameters of a TLS handshake.
@@ -78,6 +79,67 @@ enum ProtocolVersion {
 }
 ```
 
-The payload contains arbitrary bytes, although the maximal payload size is $2^{14}$ bytes. If the length field contains a value larger than the maximal payload size, the protocol should send an alert `RecordOverflow` (which should probably translate to some deserialization error).
+## Encrypted records
+In a typical TLS conversation, after `ClientHello` and `ServerHello`, the two parties have established a shared secret and can exchange encrypted records. Since I designed the `deserialize` function to be unaware of the context, it would be up to the caller to choose whether it is parsing a plaintext record (payload will be parsed into the higher level struct at `deserialize`) or an encrypted record (payload will first be parsed into opaque fragment, then decrypted, then parsed into higher level struct).  
 
-Both clear messages and encrypted message follow the same structure, so a single struct should suffice for now. We will need to implement the cryptography parts first before we can handle encrypted records.
+This also means that there will be two structs `TLSPlaintext` and `TLSCiphertext`, where the payload field of `TLSCiphertext` is a `TLSInnerPlaintext`, which differ from the `TLSPlaintext` in its structure.
+
+For now we will not worry about the API design for differentiating plaintext from ciphertext records.
+
+Some ideas:
+
+```rust
+struct TLSPlaintext {
+    content_type: ContentType,
+    legacy_protocol_version: ProtocolVersion,
+    length: U16,
+    payload: Payload,
+}
+
+enum PlaintextPayload {
+    HandshakeMsg,
+    Alert,
+    ApplicationData,
+
+    /// Testing purpose only
+    Opaque,
+}
+
+impl TLSPlaintext {
+    fn deserialize(buf: &[u8]) -> Self {
+        // based on the value of content_type, the fragment can be passed into higher level struct parsing
+        // so the returned struct will have the complete structure
+    }
+}
+
+enum CiphertextPayload {
+    Ciphertext,
+    TLSInnerPlaintext(TLSInnerPlaintext),
+}
+
+struct TLSCiphertext {
+    content_type: ContentType,
+    legacy_protocol_version: ProtocolVersion,
+    length: U16,
+    encrypted_record: CiphertextPayload,
+}
+
+impl TLSCiphertext {
+    fn deserialize(buf: &[u8]) -> Self {
+        // at deserialization, first parse into Payload::Opaque,
+        // decryption and further parsing will happen with another function call
+    }
+
+    fn decrypt(&self, key: ???) -> Self {
+        // decrypt the opaque record AND parse into higher level structs
+    }
+}
+
+/// TODO: When parsing inner plaintext, need to read the input buffer backwards until reaching a byte that contains valid content_type encoding
+struct TLSInnerPlaintext {
+    content: Payload,
+    content_type: ContentType,
+    /// The inner representation of padding will only be a count to save memory
+    zeros: U16,
+}
+```
