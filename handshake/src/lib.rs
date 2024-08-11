@@ -1,3 +1,4 @@
+pub mod handshake;
 pub mod primitives;
 pub mod record;
 pub mod traits;

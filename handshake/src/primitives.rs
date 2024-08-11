@@ -73,7 +73,7 @@ impl std::fmt::Display for U16 {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct U24(u32);
+pub struct U24(pub u32);
 
 impl U24 {
     pub const BYTES: usize = 3;
@@ -81,7 +81,8 @@ impl U24 {
 
 impl Deserializable for U24 {
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
-        buf.write(&self.0.to_be_bytes())
+        // TODO: remove magic number
+        buf.write(&self.0.to_be_bytes()[1..])
     }
 
     /// Only read the first three bytes from the input buffer and parses them into a u32
@@ -248,6 +249,10 @@ pub enum ContentType {
     Handshake,
     /// 0x17
     ApplicationData,
+
+    /// A special test type that is not real but is useful for tesing
+    /// 0xFF
+    Opaque,
 }
 
 impl ContentType {
@@ -260,6 +265,7 @@ impl ContentType {
             Self::Alert => [0x15],
             Self::Handshake => [0x16],
             Self::ApplicationData => [0x17],
+            Self::Opaque => [0xFF],
         }
     }
 }
@@ -282,6 +288,7 @@ impl Deserializable for ContentType {
             0x15 => Self::Alert,
             0x16 => Self::Handshake,
             0x17 => Self::ApplicationData,
+            0xFF => Self::Opaque,
             _ => return Err(DeserializationError::InvalidEnumValue),
         };
         return Ok((content_type, Self::BYTES));

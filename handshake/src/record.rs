@@ -1,13 +1,39 @@
 //! Record Layer
+use crate::handshake::HandshakeMsg;
 use crate::primitives::{ContentType, ProtocolVersion, U16};
 use crate::traits::{Deserializable, DeserializationError};
 use crate::{MAX_RECORD_LENGTH, UNEXPECTED_OUT_OF_BOUND_PANIC};
 use std::io::Write;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Payload {
+    Opaque(Vec<u8>),
+    Handshake(HandshakeMsg),
+}
+
+impl Deserializable for Payload {
+    /// Payload always first serialize into opaque bytes. Higher level parsing should be left to
+    /// other methods
+    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Self::Opaque(fragment) => buf.write(&fragment),
+            Self::Handshake(msg) => msg.serialize(buf),
+        }
+    }
+
+    /// The Payload field by itself does not know what kind of payload it should be, neither does
+    /// it know how many bytes to consume. Instead, it relies on the caller to supply it with the
+    /// correct slice and perform further parsing into the appropriate payload type
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        Ok((Self::Opaque(buf.to_vec()), buf.len()))
+    }
+}
+
 /// The record type is the top-level abstraction.
 ///
 /// TODO: this is a literal translation of the specification. There could be some deviation (not
 /// sure if any good though): use Vector<U16, U8>, use fragment: &[u8], use fragment: [u8; 1 << 14]
+/// TODO: maybe TLSPlaintext is a more suitable name
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpaqueRecord {
     pub content_type: ContentType,
@@ -20,7 +46,7 @@ pub struct OpaqueRecord {
     /// record that exceeds thislength must terminate the connection with a "record_overflow" alert
     pub length: U16,
 
-    pub fragment: Vec<u8>,
+    pub fragment: Payload,
 }
 
 impl Deserializable for OpaqueRecord {
@@ -38,7 +64,7 @@ impl Deserializable for OpaqueRecord {
         buf = buf
             .get_mut(U16::BYTES..)
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
-        written += buf.write(&self.fragment)?;
+        written += self.fragment.serialize(&mut buf)?;
 
         Ok(written)
     }
@@ -75,18 +101,24 @@ impl Deserializable for OpaqueRecord {
                 buf.len(),
             ));
         }
-        let mut fragment = vec![];
-        fragment.extend_from_slice(
-            buf.get(..fragment_size)
-                .expect(UNEXPECTED_OUT_OF_BOUND_PANIC),
-        );
+        let fragment = buf
+            .get(..fragment_size)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let payload: Payload = match content_type {
+            ContentType::Handshake => {
+                let (msg, _) = HandshakeMsg::deserialize(fragment)?;
+                Payload::Handshake(msg)
+            }
+            ContentType::Opaque => Payload::Opaque(fragment.to_vec()),
+            _ => todo!(),
+        };
 
         return Ok((
             Self {
                 content_type,
                 legacy_record_version,
                 length,
-                fragment,
+                fragment: payload,
             },
             content_size + version_size + length_size + fragment_size,
         ));
@@ -110,12 +142,12 @@ mod tests {
     #[test]
     fn record_serde() {
         let record = OpaqueRecord {
-            content_type: ContentType::Handshake,
+            content_type: ContentType::Opaque,
             legacy_record_version: ProtocolVersion::Tls_1_3,
             length: U16(5),
-            fragment: [0u8; 5].to_vec(),
+            fragment: Payload::Opaque([0u8; 5].to_vec()),
         };
-        let expected_buf = [22, 3, 4, 0, 5, 0, 0, 0, 0, 0];
+        let expected_buf = [0xFF, 3, 4, 0, 5, 0, 0, 0, 0, 0];
         let mut buf = [0u8; 10];
         record.serialize(&mut buf).unwrap();
         assert_eq!(buf, expected_buf);
