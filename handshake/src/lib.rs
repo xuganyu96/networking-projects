@@ -1,3 +1,4 @@
+pub mod extensions;
 pub mod handshake;
 pub mod primitives;
 pub mod record;

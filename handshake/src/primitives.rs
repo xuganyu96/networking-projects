@@ -5,7 +5,7 @@ use crate::{
 use std::io::Write;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct U8(u8);
+pub struct U8(pub u8);
 
 impl U8 {
     pub const BYTES: usize = 1;
@@ -177,11 +177,12 @@ impl Into<usize> for U64 {
 }
 
 /// T is the length type; U is the element type
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Vector<T, U> {
     /// The number of bytes needed to serialize and deserialize the vector
-    size: T,
+    pub size: T,
     /// The individual elements
-    elems: Vec<U>,
+    pub elems: Vec<U>,
 }
 
 impl<T, U> Vector<T, U> {
@@ -207,25 +208,28 @@ where
         return Ok(written);
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(mut buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
         let mut written: usize = 0;
-        let (datalen, consumed) = T::deserialize(buf)?;
+        let (datalen, datalen_size) = T::deserialize(buf)?;
+        written += datalen_size;
         let datalen_usize: usize = datalen.into();
-        written += datalen_usize;
-        let mut dataslice = &buf[consumed..consumed + datalen_usize];
 
-        if dataslice.len() < datalen_usize {
+        if buf.len() < datalen_usize {
             return Err(DeserializationError::insufficient_vec_data(
                 datalen_usize,
-                dataslice.len(),
+                buf.len(),
             ));
         }
+        buf = buf
+            .get(datalen_size..datalen_size + datalen_usize)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
 
         let mut elems: Vec<U> = vec![];
-        while dataslice.len() > 0 {
-            let (elem, elem_size) = U::deserialize(dataslice)?;
+        while buf.len() > 0 {
+            let (elem, elem_size) = U::deserialize(buf)?;
+            written += elem_size;
             elems.push(elem);
-            dataslice = &dataslice[elem_size..];
+            buf = buf.get(elem_size..).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
         }
 
         let vector = Self {
@@ -349,6 +353,72 @@ impl Deserializable for ProtocolVersion {
         };
 
         Ok((protocol_version, Self::BYTES))
+    }
+}
+
+/// TLS 1.3 no longer supports plaintext compressions due to the side-channel vulnerabilities;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum CompressionMethod {}
+
+impl Deserializable for CompressionMethod {
+    fn serialize(&self, _buf: &mut [u8]) -> std::io::Result<usize> {
+        return std::io::Result::Ok(0);
+    }
+
+    fn deserialize(_buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        panic!("TLS 1.3 does not support compression methods anymore!");
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum CipherSuite {
+    UNKNOWN([u8; Self::BYTES]),
+    TLS_AES_128_GCM_SHA256,
+    TLS_AES_256_GCM_SHA384,
+    TLS_CHACHA20_POLY1305_SHA256,
+    TLS_AES_128_CCM_SHA256,
+    TLS_AES_128_CCM_8_SHA256,
+}
+
+impl CipherSuite {
+    pub const BYTES: usize = 2;
+
+    pub fn to_bytes(&self) -> [u8; Self::BYTES] {
+        match self {
+            Self::UNKNOWN(encoding) => encoding.clone(),
+            Self::TLS_AES_128_GCM_SHA256 => [0x13, 0x01],
+            Self::TLS_AES_256_GCM_SHA384 => [0x13, 0x02],
+            Self::TLS_CHACHA20_POLY1305_SHA256 => [0x13, 0x03],
+            Self::TLS_AES_128_CCM_SHA256 => [0x13, 0x04],
+            Self::TLS_AES_128_CCM_8_SHA256 => [0x13, 0x05],
+        }
+    }
+}
+
+impl Deserializable for CipherSuite {
+    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        buf.write(&self.to_bytes())
+    }
+
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        if buf.len() < Self::BYTES {
+            return Err(DeserializationError::insufficient_buffer_length(
+                Self::BYTES,
+                buf.len(),
+            ));
+        }
+        let encoding = buf.get(..Self::BYTES).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let cipher_suite = match *encoding {
+            [0x13, 0x01] => Self::TLS_AES_128_GCM_SHA256,
+            [0x13, 0x02] => Self::TLS_AES_256_GCM_SHA384,
+            [0x13, 0x03] => Self::TLS_CHACHA20_POLY1305_SHA256,
+            [0x13, 0x04] => Self::TLS_AES_128_CCM_SHA256,
+            [0x13, 0x05] => Self::TLS_AES_128_CCM_8_SHA256,
+            _ => Self::UNKNOWN([encoding[0], encoding[1]]),
+        };
+
+        Ok((cipher_suite, Self::BYTES))
     }
 }
 

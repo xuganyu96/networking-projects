@@ -1,10 +1,13 @@
 //! Handshake
 use crate::{
-    primitives::U24,
+    extensions::Extension,
+    primitives::{CipherSuite, CompressionMethod, ProtocolVersion, Vector, U16, U24, U8},
     traits::{Deserializable, DeserializationError},
     UNEXPECTED_OUT_OF_BOUND_PANIC,
 };
 use std::io::Write;
+
+pub const RANDOM_SIZE: usize = 32;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum HandshakeType {
@@ -59,12 +62,14 @@ impl Deserializable for HandshakeType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Payload {
     Opaque(Vec<u8>),
+    ClientHello(ClientHello),
 }
 
 impl Deserializable for Payload {
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
             Self::Opaque(fragment) => buf.write(&fragment),
+            Self::ClientHello(client_hello) => client_hello.serialize(buf),
         }
     }
 
@@ -115,6 +120,10 @@ impl Deserializable for HandshakeMsg {
                 let (opaque_payload, _) = Payload::deserialize(payload_slice)?;
                 opaque_payload
             }
+            HandshakeType::ClientHello => {
+                let (client_hello, _) = ClientHello::deserialize(payload_slice)?;
+                Payload::ClientHello(client_hello)
+            }
             _ => todo!(),
         };
 
@@ -143,6 +152,100 @@ impl Deserializable for HandshakeMsg {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientHello {
+    legacy_version: ProtocolVersion,
+    random: [u8; RANDOM_SIZE],
+    legacy_session_id: Vector<U8, U8>,
+    cipher_suites: Vector<U16, CipherSuite>,
+    legacy_compression_methods: Vector<U8, CompressionMethod>,
+    extensions: Vector<U16, Extension>,
+}
+
+impl Deserializable for ClientHello {
+    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        let version_size = self.legacy_version.serialize(buf)?;
+        buf = buf
+            .get_mut(version_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        buf.write(&self.random)?;
+        buf = buf
+            .get_mut(RANDOM_SIZE..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let session_id_size = self.legacy_session_id.serialize(buf)?;
+        buf = buf
+            .get_mut(session_id_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let cipher_suites_size = self.cipher_suites.serialize(buf)?;
+        buf = buf
+            .get_mut(cipher_suites_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let compression_methods_size = self.legacy_compression_methods.serialize(buf)?;
+        buf = buf
+            .get_mut(compression_methods_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let extension_size = self.extensions.serialize(buf)?;
+
+        Ok(version_size
+            + RANDOM_SIZE
+            + session_id_size
+            + cipher_suites_size
+            + compression_methods_size
+            + extension_size)
+    }
+
+    fn deserialize(mut buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let (legacy_version, version_size) = ProtocolVersion::deserialize(buf)?;
+        buf = buf
+            .get(version_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+
+        if buf.len() < RANDOM_SIZE {
+            return Err(DeserializationError::insufficient_buffer_length(
+                RANDOM_SIZE,
+                buf.len(),
+            ));
+        }
+        let mut random = [0u8; RANDOM_SIZE];
+        random.copy_from_slice(buf.get(..RANDOM_SIZE).expect(UNEXPECTED_OUT_OF_BOUND_PANIC));
+        buf = buf.get(RANDOM_SIZE..).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+
+        let (legacy_session_id, session_id_size) = Vector::<U8, U8>::deserialize(buf)?;
+        buf = buf
+            .get(session_id_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let (cipher_suites, cipher_suites_size) = Vector::<U16, CipherSuite>::deserialize(buf)?;
+        buf = buf
+            .get(cipher_suites_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let (legacy_compression_methods, compression_methods_size) =
+            Vector::<U8, CompressionMethod>::deserialize(buf)?;
+        buf = buf
+            .get(compression_methods_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let (extensions, extensions_size) = Vector::<U16, Extension>::deserialize(buf)?;
+
+        let client_hello = ClientHello {
+            legacy_version,
+            random,
+            legacy_session_id,
+            cipher_suites,
+            legacy_compression_methods,
+            extensions,
+        };
+
+        Ok((
+            client_hello,
+            version_size
+                + RANDOM_SIZE
+                + session_id_size
+                + cipher_suites_size
+                + compression_methods_size
+                + extensions_size,
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,6 +271,44 @@ mod tests {
                 },
                 4
             ))
+        );
+    }
+
+    #[test]
+    fn opaque_client_hello_serde() {
+        let client_hello = ClientHello {
+            legacy_version: ProtocolVersion::Tls_1_2,
+            random: [1u8; RANDOM_SIZE],
+            legacy_session_id: Vector::<U8, U8> {
+                size: U8(0),
+                elems: vec![],
+            },
+            cipher_suites: Vector::<U16, CipherSuite> {
+                size: U16(0),
+                elems: vec![],
+            },
+            legacy_compression_methods: Vector::<U8, CompressionMethod> {
+                size: U8(0),
+                elems: vec![],
+            },
+            extensions: Vector {
+                size: U16(0),
+                elems: vec![],
+            },
+        };
+        let mut buf = [0u8; 999];
+        let client_hello_size = client_hello.serialize(&mut buf).unwrap();
+        assert_eq!(
+            buf.get(..client_hello_size).unwrap(),
+            &[
+                3, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
+            ],
+        );
+
+        assert_eq!(
+            ClientHello::deserialize(&buf[..client_hello_size]),
+            Ok((client_hello, client_hello_size))
         );
     }
 }
