@@ -422,6 +422,77 @@ impl Deserializable for CipherSuite {
     }
 }
 
+#[allow(non_camel_case_types)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum SignatureScheme {
+    Private([u8; Self::BYTES]),
+    ecdsa_secp256r1_sha256, // 0x0403
+    ecdsa_secp384r1_sha384, // 0x0503
+    ecdsa_secp521r1_sha512, // 0x0603
+    ed25519,                // 0x0807
+    rsa_pss_rsae_sha256,    // 0x0804
+    rsa_pss_rsae_sha384,    // 0x0805
+    rsa_pss_rsae_sha512,    // 0x0806
+    rsa_pkcs1_sha256,       // 0x0401
+    rsa_pkcs1_sha384,       // 0x0501
+    rsa_pkcs1_sha512,       // 0x0601
+}
+
+impl SignatureScheme {
+    pub const BYTES: usize = 2;
+
+    pub fn to_bytes(&self) -> [u8; Self::BYTES] {
+        match self {
+            Self::ecdsa_secp256r1_sha256 => [0x04, 0x03],
+            Self::ecdsa_secp384r1_sha384 => [0x05, 0x03],
+            Self::ecdsa_secp521r1_sha512 => [0x06, 0x03],
+            Self::ed25519 => [0x08, 0x07],
+            Self::rsa_pss_rsae_sha256 => [0x08, 0x04],
+            Self::rsa_pss_rsae_sha384 => [0x08, 0x05],
+            Self::rsa_pss_rsae_sha512 => [0x08, 0x06],
+            Self::rsa_pkcs1_sha256 => [0x04, 0x01],
+            Self::rsa_pkcs1_sha384 => [0x05, 0x01],
+            Self::rsa_pkcs1_sha512 => [0x06, 0x01],
+            Self::Private(encoding) => *encoding,
+        }
+    }
+}
+
+impl Deserializable for SignatureScheme {
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        if buf.len() < Self::BYTES {
+            return Err(DeserializationError::insufficient_buffer_length(
+                Self::BYTES,
+                buf.len(),
+            ));
+        }
+        let encoding = buf.get(..Self::BYTES).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let scheme = match *encoding {
+            [0x04, 0x03] => Self::ecdsa_secp256r1_sha256,
+            [0x05, 0x03] => Self::ecdsa_secp384r1_sha384,
+            [0x06, 0x03] => Self::ecdsa_secp521r1_sha512,
+            [0x08, 0x07] => Self::ed25519,
+            [0x08, 0x04] => Self::rsa_pss_rsae_sha256,
+            [0x08, 0x05] => Self::rsa_pss_rsae_sha384,
+            [0x08, 0x06] => Self::rsa_pss_rsae_sha512,
+            [0x04, 0x01] => Self::rsa_pkcs1_sha256,
+            [0x05, 0x01] => Self::rsa_pkcs1_sha384,
+            [0x06, 0x01] => Self::rsa_pkcs1_sha512,
+            _ => {
+                let mut dst = [0u8; Self::BYTES];
+                dst.copy_from_slice(encoding);
+                Self::Private(dst)
+            }
+        };
+
+        Ok((scheme, Self::BYTES))
+    }
+
+    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        buf.write(&self.to_bytes())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

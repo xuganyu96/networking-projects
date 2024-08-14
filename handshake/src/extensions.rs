@@ -1,5 +1,5 @@
 //! Handshake Extensions
-use crate::primitives::U16;
+use crate::primitives::{SignatureScheme, Vector, U16};
 use crate::traits::{Deserializable, DeserializationError};
 use crate::UNEXPECTED_OUT_OF_BOUND_PANIC;
 use std::io::Write;
@@ -8,6 +8,10 @@ use std::io::Write;
 pub enum ExtensionType {
     /// Both for testing and for accommodating unsupported extension types
     Opaque([u8; Self::BYTES]),
+
+    /// Which signature algorithms may be used in digital signatures; applies to the signature in
+    /// `CertificateVerify`
+    SignatureAlgorithms,
 }
 
 impl ExtensionType {
@@ -17,6 +21,7 @@ impl ExtensionType {
     pub fn to_bytes(&self) -> [u8; Self::BYTES] {
         match self {
             Self::Opaque(encoding) => encoding.clone(),
+            Self::SignatureAlgorithms => [0, 13],
         }
     }
 }
@@ -31,6 +36,7 @@ impl Deserializable for ExtensionType {
         }
         let encoding = buf.get(..Self::BYTES).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
         let extension_type = match *encoding {
+            [0, 13] => Self::SignatureAlgorithms,
             _ => Self::Opaque([encoding[0], encoding[1]]),
         };
 
@@ -45,12 +51,14 @@ impl Deserializable for ExtensionType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExtensionPayload {
     Opaque(Vec<u8>),
+    SignatureAlgorithms(SignatureSchemeList),
 }
 
 impl Deserializable for ExtensionPayload {
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
             Self::Opaque(fragment) => buf.write(&fragment),
+            Self::SignatureAlgorithms(sigalgs) => sigalgs.serialize(&mut buf),
         }
     }
 
@@ -106,6 +114,10 @@ impl Deserializable for Extension {
             .get(..length_usize)
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
         let payload = match extension_type {
+            ExtensionType::SignatureAlgorithms => {
+                let (sigalgs, _) = SignatureSchemeList::deserialize(&data_slice)?;
+                ExtensionPayload::SignatureAlgorithms(sigalgs)
+            }
             ExtensionType::Opaque(_) => ExtensionPayload::Opaque(data_slice.to_vec()),
         };
 
@@ -117,6 +129,29 @@ impl Deserializable for Extension {
             },
             type_size + length_size + length_usize,
         ));
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureSchemeList {
+    supported_signature_algorithms: Vector<U16, SignatureScheme>,
+}
+
+impl Deserializable for SignatureSchemeList {
+    fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.supported_signature_algorithms.serialize(buf)
+    }
+
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let (supported_signature_algorithms, size) =
+            Vector::<U16, SignatureScheme>::deserialize(buf)?;
+
+        Ok((
+            Self {
+                supported_signature_algorithms,
+            },
+            size,
+        ))
     }
 }
 

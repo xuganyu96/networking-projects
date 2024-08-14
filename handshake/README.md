@@ -7,6 +7,14 @@
     - [x] `Record` type
 - [x] Implement a binary using `rustls` and parse the handshake up to opaque records
 - [x] Implement top level handshake message parsing, up to opaque HandshakePayload
+- [ ] Implement some extensions
+    - [ ] `signature_algorithms`
+    - [ ] `supported_groups`
+    - [ ] `status_request`
+    - [ ] `psk_key_exchange_modes`
+    - [ ] `key_share`
+    - [ ] `supported_versions`
+    - [ ] `server_name`
 - [ ] Think about API design for differentiating `TLSPlaintext` from `TLSCiphertext`
 
 # Handshake
