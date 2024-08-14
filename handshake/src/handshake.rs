@@ -82,9 +82,9 @@ impl Deserializable for Payload {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandshakeMsg {
-    msg_type: HandshakeType,
-    length: U24,
-    payload: Payload,
+    pub msg_type: HandshakeType,
+    pub length: U24,
+    pub payload: Payload,
 }
 
 impl Deserializable for HandshakeMsg {
@@ -154,12 +154,12 @@ impl Deserializable for HandshakeMsg {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientHello {
-    legacy_version: ProtocolVersion,
-    random: [u8; RANDOM_SIZE],
-    legacy_session_id: Vector<U8, U8>,
-    cipher_suites: Vector<U16, CipherSuite>,
-    legacy_compression_methods: Vector<U8, CompressionMethod>,
-    extensions: Vector<U16, Extension>,
+    pub legacy_version: ProtocolVersion,
+    pub random: [u8; RANDOM_SIZE],
+    pub legacy_session_id: Vector<U8, U8>,
+    pub cipher_suites: Vector<U16, CipherSuite>,
+    pub legacy_compression_methods: Vector<U8, CompressionMethod>,
+    pub extensions: Vector<U16, Extension>,
 }
 
 impl Deserializable for ClientHello {

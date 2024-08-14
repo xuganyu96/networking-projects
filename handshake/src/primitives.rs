@@ -358,15 +358,17 @@ impl Deserializable for ProtocolVersion {
 
 /// TLS 1.3 no longer supports plaintext compressions due to the side-channel vulnerabilities;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum CompressionMethod {}
+pub enum CompressionMethod {
+    Null,
+}
 
 impl Deserializable for CompressionMethod {
-    fn serialize(&self, _buf: &mut [u8]) -> std::io::Result<usize> {
-        return std::io::Result::Ok(0);
+    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        buf.write(&[0u8])
     }
 
     fn deserialize(_buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
-        panic!("TLS 1.3 does not support compression methods anymore!");
+        Ok((Self::Null, 1))
     }
 }
 
