@@ -176,4 +176,36 @@ mod tests {
             Ok((expected_extension, 4))
         );
     }
+
+    #[test]
+    fn signature_algorithms_serde() {
+        let expected_buf = [0, 13, 0, 10, 0, 8, 4, 1, 5, 1, 6, 1, 0xFF, 0xFF];
+        let expected_signature_algorithms = SignatureSchemeList {
+            supported_signature_algorithms: Vector::<U16, SignatureScheme> {
+                size: U16(8),
+                elems: vec![
+                    SignatureScheme::rsa_pkcs1_sha256,
+                    SignatureScheme::rsa_pkcs1_sha384,
+                    SignatureScheme::rsa_pkcs1_sha512,
+                    SignatureScheme::Private([0xFF, 0xFF]),
+                ],
+            },
+        };
+        let expected_extension = Extension {
+            extension_type: ExtensionType::SignatureAlgorithms,
+            length: U16(10),
+            payload: ExtensionPayload::SignatureAlgorithms(expected_signature_algorithms),
+        };
+        let mut buf = [0u8; 16];
+        let written = expected_extension.serialize(&mut buf).unwrap();
+
+        assert_eq!(
+            buf.get(..written).expect(UNEXPECTED_OUT_OF_BOUND_PANIC),
+            &expected_buf
+        );
+        assert_eq!(
+            Extension::deserialize(&expected_buf),
+            Ok((expected_extension, written)),
+        );
+    }
 }
