@@ -102,7 +102,7 @@ impl Deserializable for HandshakeMsg {
             .get(HandshakeType::BYTES..)
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
         let (length, _) = U24::deserialize(buf)?;
-        buf = buf.get(..U24::BYTES).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        buf = buf.get(U24::BYTES..).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
 
         let payload_size: usize = length.into();
         // TODO: no need to check payload size overflow?
@@ -169,9 +169,6 @@ impl Deserializable for ClientHello {
             .get_mut(version_size..)
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
         buf.write(&self.random)?;
-        buf = buf
-            .get_mut(RANDOM_SIZE..)
-            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
         let session_id_size = self.legacy_session_id.serialize(buf)?;
         buf = buf
             .get_mut(session_id_size..)

@@ -70,9 +70,9 @@ impl Deserializable for ExtensionPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Extension {
-    extension_type: ExtensionType,
-    length: U16,
-    payload: ExtensionPayload,
+    pub extension_type: ExtensionType,
+    pub length: U16,
+    pub payload: ExtensionPayload,
 }
 
 impl Deserializable for Extension {
@@ -134,7 +134,7 @@ impl Deserializable for Extension {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignatureSchemeList {
-    supported_signature_algorithms: Vector<U16, SignatureScheme>,
+    pub supported_signature_algorithms: Vector<U16, SignatureScheme>,
 }
 
 impl Deserializable for SignatureSchemeList {

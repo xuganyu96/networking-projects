@@ -9,6 +9,9 @@ pub const MAX_RECORD_LENGTH: usize = 1 << 14;
 
 #[cfg(test)]
 mod tests {
+    use extensions::{ExtensionPayload, ExtensionType, SignatureSchemeList};
+    use primitives::SignatureScheme;
+
     use super::*;
     use crate::extensions::Extension;
     use crate::handshake::{ClientHello, HandshakeMsg, HandshakeType};
@@ -19,7 +22,7 @@ mod tests {
     use crate::traits::Deserializable;
 
     #[test]
-    #[should_panic] // TODO: finish hand coding the client hello
+    // #[should_panic] // TODO: finish hand coding the client hello
     fn captured_client_hello_serde() {
         let encoding = [
             0x16, 0x03, 0x01, 0x00, 0xEE, 0x01, 0x00, 0x00, 0xEA, 0x03, 0x03, 0x30, 0x3E, 0xB7,
@@ -41,6 +44,69 @@ mod tests {
             0x00, 0x11, 0x00, 0x00, 0x0E, 0x61, 0x70, 0x69, 0x2E, 0x67, 0x69, 0x74, 0x68, 0x75,
             0x62, 0x2E, 0x63, 0x6F, 0x6D,
         ];
+        let signature_algorithms = Extension {
+            extension_type: ExtensionType::SignatureAlgorithms,
+            length: U16(22),
+            payload: ExtensionPayload::SignatureAlgorithms(SignatureSchemeList {
+                supported_signature_algorithms: Vector {
+                    size: U16(20),
+                    elems: vec![
+                        SignatureScheme::ecdsa_secp521r1_sha512,
+                        SignatureScheme::ecdsa_secp384r1_sha384,
+                        SignatureScheme::ecdsa_secp256r1_sha256,
+                        SignatureScheme::ed25519,
+                        SignatureScheme::rsa_pss_rsae_sha512,
+                        SignatureScheme::rsa_pss_rsae_sha384,
+                        SignatureScheme::rsa_pss_rsae_sha256,
+                        SignatureScheme::rsa_pkcs1_sha512,
+                        SignatureScheme::rsa_pkcs1_sha384,
+                        SignatureScheme::rsa_pkcs1_sha256,
+                    ],
+                },
+            }),
+        };
+        let status_request = Extension {
+            extension_type: ExtensionType::Opaque([0x00, 0x05]),
+            length: U16(5),
+            payload: ExtensionPayload::Opaque(vec![1, 0, 0, 0, 0]),
+        };
+        let supported_groups = Extension {
+            extension_type: ExtensionType::Opaque([0x00, 0x0A]),
+            length: U16(8),
+            payload: ExtensionPayload::Opaque(vec![
+                0, 6, // length is 6 bytes
+                0x00, 0x1D, // x25519
+                0x00, 0x17, // secp256r1
+                0x00, 0x18, // secp384r1
+            ]),
+        };
+        let psk_key_exchange_modes = Extension {
+            extension_type: ExtensionType::Opaque([0x00, 0x2D]),
+            length: U16(2),
+            payload: ExtensionPayload::Opaque(vec![1, 1]),
+        };
+        let key_share = Extension {
+            extension_type: ExtensionType::Opaque([0x00, 0x33]),
+            length: U16(38),
+            payload: ExtensionPayload::Opaque(vec![
+                0x00, 0x24, 0x00, 0x1D, 0x00, 0x20, 0xC9, 0x95, 0x87, 0x67, 0xE3, 0x8D, 0x0D, 0x6E,
+                0xF9, 0x5A, 0x71, 0x97, 0xAE, 0xF7, 0x95, 0x23, 0x6A, 0x0E, 0xB3, 0x4B, 0x30, 0x43,
+                0x9B, 0x93, 0xBF, 0xAF, 0x25, 0xAB, 0x75, 0xEF, 0x40, 0x10,
+            ]),
+        };
+        let supported_versions = Extension {
+            extension_type: ExtensionType::Opaque([0x00, 0x2B]),
+            length: U16(5),
+            payload: ExtensionPayload::Opaque(vec![4, 3, 4, 3, 3]),
+        };
+        let server_name = Extension {
+            extension_type: ExtensionType::Opaque([0x00, 0x00]),
+            length: U16(19),
+            payload: ExtensionPayload::Opaque(vec![
+                0, 0x11, 0x00, 0, 14, b'a', b'p', b'i', b'.', b'g', b'i', b't', b'h', b'u', b'b',
+                b'.', b'c', b'o', b'm',
+            ]),
+        };
         let client_hello_payload = ClientHello {
             legacy_version: ProtocolVersion::Tls_1_2,
             random: [
@@ -106,20 +172,41 @@ mod tests {
             },
             extensions: Vector::<U16, Extension> {
                 size: U16(141),
-                elems: vec!(
-                    // TODO: fill in extensions
-                ),
+                elems: vec![
+                    signature_algorithms,
+                    Extension {
+                        extension_type: ExtensionType::Opaque([0x00, 0x0B]),
+                        length: U16(2),
+                        payload: ExtensionPayload::Opaque(vec![0x01, 0x00]),
+                    },
+                    status_request,
+                    Extension {
+                        extension_type: ExtensionType::Opaque([0x00, 0x17]),
+                        length: U16(0),
+                        payload: ExtensionPayload::Opaque(vec![]),
+                    },
+                    supported_groups,
+                    psk_key_exchange_modes,
+                    key_share,
+                    Extension {
+                        extension_type: ExtensionType::Opaque([0x00, 0x23]),
+                        length: U16(0),
+                        payload: ExtensionPayload::Opaque(vec![]),
+                    },
+                    supported_versions,
+                    server_name,
+                ],
             },
         };
         let client_hello = HandshakeMsg {
             msg_type: HandshakeType::ClientHello,
-            length: U24(0xea),
+            length: U24(234),
             payload: crate::handshake::Payload::ClientHello(client_hello_payload),
         };
         let client_hello = OpaqueRecord {
             content_type: ContentType::Handshake,
             legacy_record_version: ProtocolVersion::Tls_1_0,
-            length: U16(243),
+            length: U16(238),
             fragment: crate::record::Payload::Handshake(client_hello),
         };
 

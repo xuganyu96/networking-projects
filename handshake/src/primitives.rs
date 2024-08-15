@@ -362,13 +362,24 @@ pub enum CompressionMethod {
     Null,
 }
 
+impl CompressionMethod {
+    pub const BYTES: usize = 1;
+}
+
 impl Deserializable for CompressionMethod {
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&[0u8])
     }
 
-    fn deserialize(_buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
-        Ok((Self::Null, 1))
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        if buf.len() < Self::BYTES {
+            return Err(DeserializationError::insufficient_buffer_length(
+                Self::BYTES,
+                buf.len(),
+            ));
+        }
+
+        Ok((Self::Null, Self::BYTES))
     }
 }
 
