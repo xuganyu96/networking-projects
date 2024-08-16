@@ -506,6 +506,89 @@ impl Deserializable for SignatureScheme {
     }
 }
 
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NamedGroup {
+    /// 0x0017
+    secp256r1,
+    /// 0x0018
+    secp384r1,
+    /// 0x0019
+    secp521r1,
+    /// 0x001D
+    x25519,
+    /// 0x001E
+    x448,
+    /// 0x0100
+    ffdhe2048,
+    /// 0x0101
+    ffdhe3072,
+    /// 0x0102
+    ffdhe4096,
+    /// 0x0103
+    ffdhe6144,
+    /// 0x0104
+    ffdhe8192,
+    /// for private use
+    Private([u8; Self::BYTES]),
+}
+
+impl NamedGroup {
+    pub const BYTES: usize = 2;
+
+    pub fn to_bytes(&self) -> [u8; Self::BYTES] {
+        match self {
+            Self::secp256r1 => [0x00, 0x17],
+            Self::secp384r1 => [0x00, 0x18],
+            Self::secp521r1 => [0x00, 0x19],
+            Self::x25519 => [0x00, 0x1D],
+            Self::x448 => [0x00, 0x1E],
+            Self::ffdhe2048 => [0x01, 0x00],
+            Self::ffdhe3072 => [0x01, 0x01],
+            Self::ffdhe4096 => [0x01, 0x02],
+            Self::ffdhe6144 => [0x01, 0x03],
+            Self::ffdhe8192 => [0x01, 0x04],
+            Self::Private(encoding) => *encoding,
+        }
+    }
+}
+
+impl Deserializable for NamedGroup {
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        if buf.len() < Self::BYTES {
+            return Err(DeserializationError::insufficient_buffer_length(
+                Self::BYTES,
+                buf.len(),
+            ));
+        }
+
+        let encoding = buf.get(..Self::BYTES).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let named_group = match *encoding {
+            [0x00, 0x17] => Self::secp256r1,
+            [0x00, 0x18] => Self::secp384r1,
+            [0x00, 0x19] => Self::secp521r1,
+            [0x00, 0x1D] => Self::x25519,
+            [0x00, 0x1E] => Self::x448,
+            [0x01, 0x00] => Self::ffdhe2048,
+            [0x01, 0x01] => Self::ffdhe3072,
+            [0x01, 0x02] => Self::ffdhe4096,
+            [0x01, 0x03] => Self::ffdhe6144,
+            [0x01, 0x04] => Self::ffdhe8192,
+            _ => {
+                let mut _named_group = [0u8; Self::BYTES];
+                _named_group.copy_from_slice(encoding);
+                Self::Private(_named_group)
+            }
+        };
+
+        Ok((named_group, Self::BYTES))
+    }
+
+    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        buf.write(&self.to_bytes())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -8,9 +8,9 @@
 - [x] Implement a binary using `rustls` and parse the handshake up to opaque records
 - [x] Implement top level handshake message parsing, up to opaque HandshakePayload
 - [ ] Implement some extensions
-    - [ ] `signature_algorithms`
-    - [ ] `supported_groups`
+    - [x] `signature_algorithms`
     - [ ] `status_request`
+    - [x] `supported_groups`
     - [ ] `psk_key_exchange_modes`
     - [ ] `key_share`
     - [ ] `supported_versions`

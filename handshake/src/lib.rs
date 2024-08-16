@@ -9,8 +9,8 @@ pub const MAX_RECORD_LENGTH: usize = 1 << 14;
 
 #[cfg(test)]
 mod tests {
-    use extensions::{ExtensionPayload, ExtensionType, SignatureSchemeList};
-    use primitives::SignatureScheme;
+    use extensions::{ExtensionPayload, ExtensionType, SignatureSchemeList, SupportedGroups};
+    use primitives::{NamedGroup, SignatureScheme};
 
     use super::*;
     use crate::extensions::Extension;
@@ -65,20 +65,25 @@ mod tests {
                 },
             }),
         };
+        // TODO: status_request is defined in RFC 6066
         let status_request = Extension {
             extension_type: ExtensionType::Opaque([0x00, 0x05]),
             length: U16(5),
             payload: ExtensionPayload::Opaque(vec![1, 0, 0, 0, 0]),
         };
         let supported_groups = Extension {
-            extension_type: ExtensionType::Opaque([0x00, 0x0A]),
+            extension_type: ExtensionType::SupportedGroups,
             length: U16(8),
-            payload: ExtensionPayload::Opaque(vec![
-                0, 6, // length is 6 bytes
-                0x00, 0x1D, // x25519
-                0x00, 0x17, // secp256r1
-                0x00, 0x18, // secp384r1
-            ]),
+            payload: ExtensionPayload::SupportedGroups(SupportedGroups {
+                named_group_list: Vector {
+                    size: U16(6),
+                    elems: vec![
+                        NamedGroup::x25519,
+                        NamedGroup::secp256r1,
+                        NamedGroup::secp384r1,
+                    ],
+                },
+            }),
         };
         let psk_key_exchange_modes = Extension {
             extension_type: ExtensionType::Opaque([0x00, 0x2D]),

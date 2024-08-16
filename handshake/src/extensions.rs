@@ -1,5 +1,5 @@
 //! Handshake Extensions
-use crate::primitives::{SignatureScheme, Vector, U16};
+use crate::primitives::{NamedGroup, SignatureScheme, Vector, U16};
 use crate::traits::{Deserializable, DeserializationError};
 use crate::UNEXPECTED_OUT_OF_BOUND_PANIC;
 use std::io::Write;
@@ -12,6 +12,8 @@ pub enum ExtensionType {
     /// Which signature algorithms may be used in digital signatures; applies to the signature in
     /// `CertificateVerify`
     SignatureAlgorithms,
+
+    SupportedGroups,
 }
 
 impl ExtensionType {
@@ -22,6 +24,7 @@ impl ExtensionType {
         match self {
             Self::Opaque(encoding) => encoding.clone(),
             Self::SignatureAlgorithms => [0, 13],
+            Self::SupportedGroups => [0, 0x0A],
         }
     }
 }
@@ -37,6 +40,7 @@ impl Deserializable for ExtensionType {
         let encoding = buf.get(..Self::BYTES).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
         let extension_type = match *encoding {
             [0, 13] => Self::SignatureAlgorithms,
+            [0, 0x0A] => Self::SupportedGroups,
             _ => Self::Opaque([encoding[0], encoding[1]]),
         };
 
@@ -52,6 +56,7 @@ impl Deserializable for ExtensionType {
 pub enum ExtensionPayload {
     Opaque(Vec<u8>),
     SignatureAlgorithms(SignatureSchemeList),
+    SupportedGroups(SupportedGroups),
 }
 
 impl Deserializable for ExtensionPayload {
@@ -59,6 +64,7 @@ impl Deserializable for ExtensionPayload {
         match self {
             Self::Opaque(fragment) => buf.write(&fragment),
             Self::SignatureAlgorithms(sigalgs) => sigalgs.serialize(&mut buf),
+            Self::SupportedGroups(groups) => groups.serialize(&mut buf),
         }
     }
 
@@ -118,6 +124,10 @@ impl Deserializable for Extension {
                 let (sigalgs, _) = SignatureSchemeList::deserialize(&data_slice)?;
                 ExtensionPayload::SignatureAlgorithms(sigalgs)
             }
+            ExtensionType::SupportedGroups => {
+                let (named_groups, _) = SupportedGroups::deserialize(&data_slice)?;
+                ExtensionPayload::SupportedGroups(named_groups)
+            }
             ExtensionType::Opaque(_) => ExtensionPayload::Opaque(data_slice.to_vec()),
         };
 
@@ -152,6 +162,23 @@ impl Deserializable for SignatureSchemeList {
             },
             size,
         ))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupportedGroups {
+    pub named_group_list: Vector<U16, NamedGroup>,
+}
+
+impl Deserializable for SupportedGroups {
+    fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.named_group_list.serialize(buf)
+    }
+
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let (named_group_list, size) = Vector::<U16, NamedGroup>::deserialize(buf)?;
+
+        Ok((Self { named_group_list }, size))
     }
 }
 
