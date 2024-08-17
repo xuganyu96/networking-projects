@@ -1,5 +1,5 @@
 //! Handshake Extensions
-use crate::primitives::{NamedGroup, SignatureScheme, Vector, U16};
+use crate::primitives::{NamedGroup, PskKeyExchangeMode, SignatureScheme, Vector, U16, U8};
 use crate::traits::{Deserializable, DeserializationError};
 use crate::UNEXPECTED_OUT_OF_BOUND_PANIC;
 use std::io::Write;
@@ -14,6 +14,9 @@ pub enum ExtensionType {
     SignatureAlgorithms,
 
     SupportedGroups,
+
+    /// 0x2D
+    PskKeyExchangeModes,
 }
 
 impl ExtensionType {
@@ -25,6 +28,7 @@ impl ExtensionType {
             Self::Opaque(encoding) => encoding.clone(),
             Self::SignatureAlgorithms => [0, 13],
             Self::SupportedGroups => [0, 0x0A],
+            Self::PskKeyExchangeModes => [0, 45],
         }
     }
 }
@@ -41,6 +45,7 @@ impl Deserializable for ExtensionType {
         let extension_type = match *encoding {
             [0, 13] => Self::SignatureAlgorithms,
             [0, 0x0A] => Self::SupportedGroups,
+            [0, 45] => Self::PskKeyExchangeModes,
             _ => Self::Opaque([encoding[0], encoding[1]]),
         };
 
@@ -57,6 +62,7 @@ pub enum ExtensionPayload {
     Opaque(Vec<u8>),
     SignatureAlgorithms(SignatureSchemeList),
     SupportedGroups(SupportedGroups),
+    PskKeyExchangeModes(PskKeyExchangeModes),
 }
 
 impl Deserializable for ExtensionPayload {
@@ -65,6 +71,7 @@ impl Deserializable for ExtensionPayload {
             Self::Opaque(fragment) => buf.write(&fragment),
             Self::SignatureAlgorithms(sigalgs) => sigalgs.serialize(&mut buf),
             Self::SupportedGroups(groups) => groups.serialize(&mut buf),
+            Self::PskKeyExchangeModes(modes) => modes.serialize(&mut buf),
         }
     }
 
@@ -128,6 +135,10 @@ impl Deserializable for Extension {
                 let (named_groups, _) = SupportedGroups::deserialize(&data_slice)?;
                 ExtensionPayload::SupportedGroups(named_groups)
             }
+            ExtensionType::PskKeyExchangeModes => {
+                let (psk_key_exchange_modes, _) = PskKeyExchangeModes::deserialize(&data_slice)?;
+                ExtensionPayload::PskKeyExchangeModes(psk_key_exchange_modes)
+            }
             ExtensionType::Opaque(_) => ExtensionPayload::Opaque(data_slice.to_vec()),
         };
 
@@ -176,9 +187,26 @@ impl Deserializable for SupportedGroups {
     }
 
     fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
-        let (named_group_list, size) = Vector::<U16, NamedGroup>::deserialize(buf)?;
+        let (named_group_list, size) = Vector::deserialize(buf)?;
 
         Ok((Self { named_group_list }, size))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PskKeyExchangeModes {
+    pub ke_modes: Vector<U8, PskKeyExchangeMode>,
+}
+
+impl Deserializable for PskKeyExchangeModes {
+    fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.ke_modes.serialize(buf)
+    }
+
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        let (ke_modes, size) = Vector::deserialize(buf)?;
+
+        Ok((Self { ke_modes }, size))
     }
 }
 

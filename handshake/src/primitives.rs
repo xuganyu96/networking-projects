@@ -589,6 +589,52 @@ impl Deserializable for NamedGroup {
     }
 }
 
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PskKeyExchangeMode {
+    /// 0x00
+    psk_ke,
+    /// 0x01
+    psk_dhe_ke,
+}
+
+impl PskKeyExchangeMode {
+    pub const BYTES: usize = 1;
+
+    pub fn to_bytes(&self) -> [u8; Self::BYTES] {
+        match self {
+            Self::psk_ke => [0],
+            Self::psk_dhe_ke => [1],
+        }
+    }
+}
+
+impl Deserializable for PskKeyExchangeMode {
+    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        buf.write(&self.to_bytes())
+    }
+
+    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+        if buf.len() < Self::BYTES {
+            return Err(DeserializationError::insufficient_buffer_length(
+                Self::BYTES,
+                buf.len(),
+            ));
+        }
+
+        let encoding = buf.get(..Self::BYTES).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let mode = match *encoding {
+            [0] => Self::psk_ke,
+            [1] => Self::psk_dhe_ke,
+            _ => {
+                return Err(DeserializationError::InvalidEnumValue);
+            }
+        };
+
+        Ok((mode, Self::BYTES))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

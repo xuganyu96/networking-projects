@@ -9,8 +9,10 @@ pub const MAX_RECORD_LENGTH: usize = 1 << 14;
 
 #[cfg(test)]
 mod tests {
-    use extensions::{ExtensionPayload, ExtensionType, SignatureSchemeList, SupportedGroups};
-    use primitives::{NamedGroup, SignatureScheme};
+    use extensions::{
+        ExtensionPayload, ExtensionType, PskKeyExchangeModes, SignatureSchemeList, SupportedGroups,
+    };
+    use primitives::{NamedGroup, PskKeyExchangeMode, SignatureScheme};
 
     use super::*;
     use crate::extensions::Extension;
@@ -22,7 +24,6 @@ mod tests {
     use crate::traits::Deserializable;
 
     #[test]
-    // #[should_panic] // TODO: finish hand coding the client hello
     fn captured_client_hello_serde() {
         let encoding = [
             0x16, 0x03, 0x01, 0x00, 0xEE, 0x01, 0x00, 0x00, 0xEA, 0x03, 0x03, 0x30, 0x3E, 0xB7,
@@ -86,9 +87,14 @@ mod tests {
             }),
         };
         let psk_key_exchange_modes = Extension {
-            extension_type: ExtensionType::Opaque([0x00, 0x2D]),
+            extension_type: ExtensionType::PskKeyExchangeModes,
             length: U16(2),
-            payload: ExtensionPayload::Opaque(vec![1, 1]),
+            payload: ExtensionPayload::PskKeyExchangeModes(PskKeyExchangeModes {
+                ke_modes: Vector {
+                    size: U8(1),
+                    elems: vec![PskKeyExchangeMode::psk_dhe_ke],
+                },
+            }),
         };
         let key_share = Extension {
             extension_type: ExtensionType::Opaque([0x00, 0x33]),
