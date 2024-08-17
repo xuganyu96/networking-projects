@@ -38,6 +38,8 @@ pub trait Deserializable
 where
     Self: Sized,
 {
+    type Context;
+
     /// Has the same return type as io::Write::write
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize>;
     fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError>;

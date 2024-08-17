@@ -12,6 +12,7 @@ impl U8 {
 }
 
 impl Deserializable for U8 {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&self.0.to_be_bytes())
     }
@@ -41,6 +42,7 @@ impl U16 {
 }
 
 impl Deserializable for U16 {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&self.0.to_be_bytes())
     }
@@ -80,6 +82,7 @@ impl U24 {
 }
 
 impl Deserializable for U24 {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         // TODO: remove magic number
         buf.write(&self.0.to_be_bytes()[1..])
@@ -118,6 +121,7 @@ impl U32 {
 }
 
 impl Deserializable for U32 {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&self.0.to_be_bytes())
     }
@@ -151,6 +155,7 @@ impl U64 {
 }
 
 impl Deserializable for U64 {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&self.0.to_be_bytes())
     }
@@ -197,6 +202,7 @@ where
     U: Deserializable,
     usize: From<T>, // TODO: is it better to qualify with Into<usize>?
 {
+    type Context = ();
     /// First serialize the size, then serialize the data
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         let mut written = 0;
@@ -275,6 +281,7 @@ impl ContentType {
 }
 
 impl Deserializable for ContentType {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&self.to_bytes())
     }
@@ -333,6 +340,7 @@ impl std::fmt::Display for ProtocolVersion {
 }
 
 impl Deserializable for ProtocolVersion {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&self.to_bytes())
     }
@@ -367,6 +375,7 @@ impl CompressionMethod {
 }
 
 impl Deserializable for CompressionMethod {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&[0u8])
     }
@@ -410,6 +419,7 @@ impl CipherSuite {
 }
 
 impl Deserializable for CipherSuite {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&self.to_bytes())
     }
@@ -472,6 +482,7 @@ impl SignatureScheme {
 }
 
 impl Deserializable for SignatureScheme {
+    type Context = ();
     fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
@@ -554,6 +565,7 @@ impl NamedGroup {
 }
 
 impl Deserializable for NamedGroup {
+    type Context = ();
     fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
@@ -610,6 +622,7 @@ impl PskKeyExchangeMode {
 }
 
 impl Deserializable for PskKeyExchangeMode {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&self.to_bytes())
     }

@@ -34,6 +34,7 @@ impl ExtensionType {
 }
 
 impl Deserializable for ExtensionType {
+    type Context = ();
     fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
@@ -66,6 +67,7 @@ pub enum ExtensionPayload {
 }
 
 impl Deserializable for ExtensionPayload {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
             Self::Opaque(fragment) => buf.write(&fragment),
@@ -89,6 +91,7 @@ pub struct Extension {
 }
 
 impl Deserializable for Extension {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         let type_size = self.extension_type.serialize(buf)?;
         buf = buf
@@ -159,6 +162,7 @@ pub struct SignatureSchemeList {
 }
 
 impl Deserializable for SignatureSchemeList {
+    type Context = ();
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.supported_signature_algorithms.serialize(buf)
     }
@@ -182,6 +186,7 @@ pub struct SupportedGroups {
 }
 
 impl Deserializable for SupportedGroups {
+    type Context = ();
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.named_group_list.serialize(buf)
     }
@@ -199,6 +204,7 @@ pub struct PskKeyExchangeModes {
 }
 
 impl Deserializable for PskKeyExchangeModes {
+    type Context = ();
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.ke_modes.serialize(buf)
     }

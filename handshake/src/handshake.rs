@@ -34,6 +34,7 @@ impl HandshakeType {
 }
 
 impl Deserializable for HandshakeType {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&self.to_bytes())
     }
@@ -66,6 +67,7 @@ pub enum Payload {
 }
 
 impl Deserializable for Payload {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
             Self::Opaque(fragment) => buf.write(&fragment),
@@ -88,6 +90,7 @@ pub struct HandshakeMsg {
 }
 
 impl Deserializable for HandshakeMsg {
+    type Context = ();
     fn deserialize(mut buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
         let static_size = HandshakeType::BYTES + U24::BYTES;
         if buf.len() < static_size {
@@ -163,6 +166,7 @@ pub struct ClientHello {
 }
 
 impl Deserializable for ClientHello {
+    type Context = ();
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         let version_size = self.legacy_version.serialize(buf)?;
         buf = buf

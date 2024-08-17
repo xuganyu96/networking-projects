@@ -11,11 +11,26 @@
     - [x] `signature_algorithms`
     - [ ] `status_request`
     - [x] `supported_groups`
-    - [ ] `psk_key_exchange_modes`
+    - [x] `psk_key_exchange_modes`
     - [ ] `key_share`
     - [ ] `supported_versions`
     - [ ] `server_name`
 - [ ] Think about API design for differentiating `TLSPlaintext` from `TLSCiphertext`
+
+# Contextual deserialization
+I'm running into a problem where the current `Deserialization` trait cannot know whether it is parsing a `ClientHello`  or a `ServerHello`, which is problematic because some extensions like `key_share` and `supported_versions` have different `extensions_data` layout depending on whether it is in a `ClientHello` or a `ServerHello`.
+
+One solution could be passing some kind of `context` struct into the `deserialize` function call. The type of the context struct could be an associated type under the `Deserializable` trait so that different deserializable structs can take in different types of contexts. Maybe this will work:
+
+```rust
+trait Deserializable {
+    type Context;
+
+    fn serialize(&self) -> std::io::Result<usize>;
+
+    fn deserialize(buf: &[u8], context: Self::Context);
+}
+```
 
 # Handshake
 I want to better understand the TLS handshake protocol by building **a library for parsing TLS messages**. From here this project can also become a simple TLS client that allows users to tinker with the parameters of a TLS handshake.
