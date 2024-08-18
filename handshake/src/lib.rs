@@ -228,7 +228,7 @@ mod tests {
             &encoding,
         );
         assert_eq!(
-            OpaqueRecord::deserialize(&encoding),
+            OpaqueRecord::deserialize(&encoding, ()),
             Ok((client_hello, written)),
         );
     }

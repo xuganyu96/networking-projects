@@ -17,7 +17,10 @@ impl Deserializable for U8 {
         buf.write(&self.0.to_be_bytes())
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -47,7 +50,10 @@ impl Deserializable for U16 {
         buf.write(&self.0.to_be_bytes())
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -89,7 +95,10 @@ impl Deserializable for U24 {
     }
 
     /// Only read the first three bytes from the input buffer and parses them into a u32
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -126,7 +135,10 @@ impl Deserializable for U32 {
         buf.write(&self.0.to_be_bytes())
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -160,7 +172,10 @@ impl Deserializable for U64 {
         buf.write(&self.0.to_be_bytes())
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -202,7 +217,7 @@ where
     U: Deserializable,
     usize: From<T>, // TODO: is it better to qualify with Into<usize>?
 {
-    type Context = ();
+    type Context = (T::Context, U::Context);
     /// First serialize the size, then serialize the data
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         let mut written = 0;
@@ -214,9 +229,13 @@ where
         return Ok(written);
     }
 
-    fn deserialize(mut buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        mut buf: &[u8],
+        context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
+        let (t_context, u_context) = context;
         let mut written: usize = 0;
-        let (datalen, datalen_size) = T::deserialize(buf)?;
+        let (datalen, datalen_size) = T::deserialize(buf, t_context)?;
         written += datalen_size;
         let datalen_usize: usize = datalen.into();
 
@@ -232,7 +251,7 @@ where
 
         let mut elems: Vec<U> = vec![];
         while buf.len() > 0 {
-            let (elem, elem_size) = U::deserialize(buf)?;
+            let (elem, elem_size) = U::deserialize(buf, u_context)?;
             written += elem_size;
             elems.push(elem);
             buf = buf.get(elem_size..).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
@@ -286,7 +305,10 @@ impl Deserializable for ContentType {
         buf.write(&self.to_bytes())
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -345,7 +367,10 @@ impl Deserializable for ProtocolVersion {
         buf.write(&self.to_bytes())
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -380,7 +405,10 @@ impl Deserializable for CompressionMethod {
         buf.write(&[0u8])
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -424,7 +452,10 @@ impl Deserializable for CipherSuite {
         buf.write(&self.to_bytes())
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -483,7 +514,10 @@ impl SignatureScheme {
 
 impl Deserializable for SignatureScheme {
     type Context = ();
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -566,7 +600,10 @@ impl NamedGroup {
 
 impl Deserializable for NamedGroup {
     type Context = ();
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -627,7 +664,10 @@ impl Deserializable for PskKeyExchangeMode {
         buf.write(&self.to_bytes())
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -693,28 +733,31 @@ mod tests {
         assert_eq!(ContentType::ApplicationData.serialize(&mut buf).unwrap(), 1);
         assert_eq!(buf, [23]);
         assert_eq!(
-            ContentType::deserialize(&[]),
+            ContentType::deserialize(&[], ()),
             Err(DeserializationError::insufficient_buffer_length(1, 0))
         );
         assert_eq!(
-            ContentType::deserialize(&[1]),
+            ContentType::deserialize(&[1], ()),
             Err(DeserializationError::InvalidEnumValue)
         );
         assert_eq!(
-            ContentType::deserialize(&[0]),
+            ContentType::deserialize(&[0], ()),
             Ok((ContentType::Invalid, 1))
         );
         assert_eq!(
-            ContentType::deserialize(&[20]),
+            ContentType::deserialize(&[20], ()),
             Ok((ContentType::ChangeCipherSpec, 1))
         );
-        assert_eq!(ContentType::deserialize(&[21]), Ok((ContentType::Alert, 1)));
         assert_eq!(
-            ContentType::deserialize(&[22]),
+            ContentType::deserialize(&[21], ()),
+            Ok((ContentType::Alert, 1))
+        );
+        assert_eq!(
+            ContentType::deserialize(&[22], ()),
             Ok((ContentType::Handshake, 1))
         );
         assert_eq!(
-            ContentType::deserialize(&[23]),
+            ContentType::deserialize(&[23], ()),
             Ok((ContentType::ApplicationData, 1))
         );
     }
@@ -727,19 +770,19 @@ mod tests {
         assert_eq!(ProtocolVersion::Tls_1_3.serialize(&mut buf).unwrap(), 2);
         assert_eq!(buf, [3, 4]);
         assert_eq!(
-            ProtocolVersion::deserialize(&[0]),
+            ProtocolVersion::deserialize(&[0], ()),
             Err(DeserializationError::insufficient_buffer_length(2, 1))
         );
         assert_eq!(
-            ProtocolVersion::deserialize(&[0, 0]),
+            ProtocolVersion::deserialize(&[0, 0], ()),
             Err(DeserializationError::InvalidEnumValue)
         );
         assert_eq!(
-            ProtocolVersion::deserialize(&[3, 3]),
+            ProtocolVersion::deserialize(&[3, 3], ()),
             Ok((ProtocolVersion::Tls_1_2, 2))
         );
         assert_eq!(
-            ProtocolVersion::deserialize(&[3, 4]),
+            ProtocolVersion::deserialize(&[3, 4], ()),
             Ok((ProtocolVersion::Tls_1_3, 2))
         );
     }

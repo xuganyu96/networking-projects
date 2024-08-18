@@ -35,7 +35,10 @@ impl ExtensionType {
 
 impl Deserializable for ExtensionType {
     type Context = ();
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -77,7 +80,10 @@ impl Deserializable for ExtensionPayload {
         }
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         let fragment = buf.to_vec();
         Ok((Self::Opaque(fragment), buf.len()))
     }
@@ -106,7 +112,10 @@ impl Deserializable for Extension {
         Ok(type_size + length_size + payload_size)
     }
 
-    fn deserialize(mut buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        mut buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         let static_size = ExtensionType::BYTES + U16::BYTES;
         if buf.len() < static_size {
             return Err(DeserializationError::insufficient_buffer_length(
@@ -114,9 +123,9 @@ impl Deserializable for Extension {
                 buf.len(),
             ));
         }
-        let (extension_type, type_size) = ExtensionType::deserialize(buf)?;
+        let (extension_type, type_size) = ExtensionType::deserialize(buf, ())?;
         buf = buf.get(type_size..).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
-        let (length, length_size) = U16::deserialize(buf)?;
+        let (length, length_size) = U16::deserialize(buf, ())?;
         buf = buf.get(length_size..).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
         let length_usize: usize = length.into();
 
@@ -131,15 +140,16 @@ impl Deserializable for Extension {
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
         let payload = match extension_type {
             ExtensionType::SignatureAlgorithms => {
-                let (sigalgs, _) = SignatureSchemeList::deserialize(&data_slice)?;
+                let (sigalgs, _) = SignatureSchemeList::deserialize(&data_slice, ())?;
                 ExtensionPayload::SignatureAlgorithms(sigalgs)
             }
             ExtensionType::SupportedGroups => {
-                let (named_groups, _) = SupportedGroups::deserialize(&data_slice)?;
+                let (named_groups, _) = SupportedGroups::deserialize(&data_slice, ())?;
                 ExtensionPayload::SupportedGroups(named_groups)
             }
             ExtensionType::PskKeyExchangeModes => {
-                let (psk_key_exchange_modes, _) = PskKeyExchangeModes::deserialize(&data_slice)?;
+                let (psk_key_exchange_modes, _) =
+                    PskKeyExchangeModes::deserialize(&data_slice, ())?;
                 ExtensionPayload::PskKeyExchangeModes(psk_key_exchange_modes)
             }
             ExtensionType::Opaque(_) => ExtensionPayload::Opaque(data_slice.to_vec()),
@@ -167,9 +177,12 @@ impl Deserializable for SignatureSchemeList {
         self.supported_signature_algorithms.serialize(buf)
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         let (supported_signature_algorithms, size) =
-            Vector::<U16, SignatureScheme>::deserialize(buf)?;
+            Vector::<U16, SignatureScheme>::deserialize(buf, ((), ()))?;
 
         Ok((
             Self {
@@ -191,8 +204,11 @@ impl Deserializable for SupportedGroups {
         self.named_group_list.serialize(buf)
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
-        let (named_group_list, size) = Vector::deserialize(buf)?;
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
+        let (named_group_list, size) = Vector::deserialize(buf, ((), ()))?;
 
         Ok((Self { named_group_list }, size))
     }
@@ -209,8 +225,11 @@ impl Deserializable for PskKeyExchangeModes {
         self.ke_modes.serialize(buf)
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
-        let (ke_modes, size) = Vector::deserialize(buf)?;
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
+        let (ke_modes, size) = Vector::deserialize(buf, ((), ()))?;
 
         Ok((Self { ke_modes }, size))
     }
@@ -233,7 +252,7 @@ mod tests {
         expected_extension.serialize(&mut buf).unwrap();
         assert_eq!(buf, expected_buf);
         assert_eq!(
-            Extension::deserialize(&expected_buf),
+            Extension::deserialize(&expected_buf, ()),
             Ok((expected_extension, 4))
         );
     }
@@ -265,7 +284,7 @@ mod tests {
             &expected_buf
         );
         assert_eq!(
-            Extension::deserialize(&expected_buf),
+            Extension::deserialize(&expected_buf, ()),
             Ok((expected_extension, written)),
         );
     }

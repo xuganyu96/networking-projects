@@ -25,7 +25,10 @@ impl Deserializable for Payload {
     /// The Payload field by itself does not know what kind of payload it should be, neither does
     /// it know how many bytes to consume. Instead, it relies on the caller to supply it with the
     /// correct slice and perform further parsing into the appropriate payload type
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         Ok((Self::Opaque(buf.to_vec()), buf.len()))
     }
 }
@@ -72,7 +75,10 @@ impl Deserializable for OpaqueRecord {
         Ok(written)
     }
 
-    fn deserialize(mut buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        mut buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         // Check the static fields first and parse them, then check the length of the fragment and
         // read the payload
         let static_length = ContentType::BYTES + ProtocolVersion::BYTES + U16::BYTES;
@@ -83,15 +89,15 @@ impl Deserializable for OpaqueRecord {
             ));
         }
 
-        let (content_type, content_size) = ContentType::deserialize(buf)?;
+        let (content_type, content_size) = ContentType::deserialize(buf, ())?;
         buf = buf
             .get(content_size..)
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
-        let (legacy_record_version, version_size) = ProtocolVersion::deserialize(buf)?;
+        let (legacy_record_version, version_size) = ProtocolVersion::deserialize(buf, ())?;
         buf = buf
             .get(version_size..)
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
-        let (length, length_size) = U16::deserialize(buf)?;
+        let (length, length_size) = U16::deserialize(buf, ())?;
         buf = buf.get(length_size..).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
 
         let fragment_size: usize = length.into();
@@ -109,7 +115,7 @@ impl Deserializable for OpaqueRecord {
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
         let payload: Payload = match content_type {
             ContentType::Handshake => {
-                let (msg, _) = HandshakeMsg::deserialize(fragment)?;
+                let (msg, _) = HandshakeMsg::deserialize(fragment, ())?;
                 Payload::Handshake(msg)
             }
             ContentType::Opaque => Payload::Opaque(fragment.to_vec()),
@@ -154,14 +160,17 @@ mod tests {
         let mut buf = [0u8; 10];
         record.serialize(&mut buf).unwrap();
         assert_eq!(buf, expected_buf);
-        assert_eq!(OpaqueRecord::deserialize(&expected_buf), Ok((record, 10)));
+        assert_eq!(
+            OpaqueRecord::deserialize(&expected_buf, ()),
+            Ok((record, 10))
+        );
 
         assert_eq!(
-            OpaqueRecord::deserialize(&[22, 3, 4, 0, 6, 0, 0, 0, 0, 0]),
+            OpaqueRecord::deserialize(&[22, 3, 4, 0, 6, 0, 0, 0, 0, 0], ()),
             Err(DeserializationError::insufficient_vec_data(6, 5)),
         );
         assert_eq!(
-            OpaqueRecord::deserialize(&[22, 3, 4, 1 << 7, 0, 0, 0, 0, 0, 0]),
+            OpaqueRecord::deserialize(&[22, 3, 4, 1 << 7, 0, 0, 0, 0, 0, 0], ()),
             Err(DeserializationError::RecordOverflow),
         );
     }

@@ -30,6 +30,6 @@ fn main() {
 
     let mut response = [0u8; 1 << 14 + 5];
     stream.read(&mut response).unwrap();
-    let (record, _) = OpaqueRecord::deserialize(&response).unwrap();
+    let (record, _) = OpaqueRecord::deserialize(&response, ()).unwrap();
     println!("received {record}");
 }

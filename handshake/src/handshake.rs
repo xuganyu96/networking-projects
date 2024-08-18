@@ -39,7 +39,10 @@ impl Deserializable for HandshakeType {
         buf.write(&self.to_bytes())
     }
 
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), crate::traits::DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), crate::traits::DeserializationError> {
         if buf.len() < Self::BYTES {
             return Err(DeserializationError::insufficient_buffer_length(
                 Self::BYTES,
@@ -77,7 +80,10 @@ impl Deserializable for Payload {
 
     /// the payload field by itself doesn't know what type of payload it should be, so it
     /// defaults to opaque. The caller is responsible for further parsing
-    fn deserialize(buf: &[u8]) -> Result<(Self, usize), crate::traits::DeserializationError> {
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), crate::traits::DeserializationError> {
         Ok((Self::Opaque(buf.to_vec()), buf.len()))
     }
 }
@@ -91,7 +97,10 @@ pub struct HandshakeMsg {
 
 impl Deserializable for HandshakeMsg {
     type Context = ();
-    fn deserialize(mut buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
+    fn deserialize(
+        mut buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
         let static_size = HandshakeType::BYTES + U24::BYTES;
         if buf.len() < static_size {
             return Err(DeserializationError::insufficient_buffer_length(
@@ -100,11 +109,11 @@ impl Deserializable for HandshakeMsg {
             ));
         }
 
-        let (msg_type, _) = HandshakeType::deserialize(buf)?;
+        let (msg_type, _) = HandshakeType::deserialize(buf, ())?;
         buf = buf
             .get(HandshakeType::BYTES..)
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
-        let (length, _) = U24::deserialize(buf)?;
+        let (length, _) = U24::deserialize(buf, ())?;
         buf = buf.get(U24::BYTES..).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
 
         let payload_size: usize = length.into();
@@ -120,11 +129,11 @@ impl Deserializable for HandshakeMsg {
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
         let payload = match msg_type {
             HandshakeType::Opaque => {
-                let (opaque_payload, _) = Payload::deserialize(payload_slice)?;
+                let (opaque_payload, _) = Payload::deserialize(payload_slice, ())?;
                 opaque_payload
             }
             HandshakeType::ClientHello => {
-                let (client_hello, _) = ClientHello::deserialize(payload_slice)?;
+                let (client_hello, _) = ClientHello::deserialize(payload_slice, ())?;
                 Payload::ClientHello(client_hello)
             }
             _ => todo!(),
@@ -195,8 +204,11 @@ impl Deserializable for ClientHello {
             + extension_size)
     }
 
-    fn deserialize(mut buf: &[u8]) -> Result<(Self, usize), DeserializationError> {
-        let (legacy_version, version_size) = ProtocolVersion::deserialize(buf)?;
+    fn deserialize(
+        mut buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
+        let (legacy_version, version_size) = ProtocolVersion::deserialize(buf, ())?;
         buf = buf
             .get(version_size..)
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
@@ -211,20 +223,21 @@ impl Deserializable for ClientHello {
         random.copy_from_slice(buf.get(..RANDOM_SIZE).expect(UNEXPECTED_OUT_OF_BOUND_PANIC));
         buf = buf.get(RANDOM_SIZE..).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
 
-        let (legacy_session_id, session_id_size) = Vector::<U8, U8>::deserialize(buf)?;
+        let (legacy_session_id, session_id_size) = Vector::<U8, U8>::deserialize(buf, ((), ()))?;
         buf = buf
             .get(session_id_size..)
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
-        let (cipher_suites, cipher_suites_size) = Vector::<U16, CipherSuite>::deserialize(buf)?;
+        let (cipher_suites, cipher_suites_size) =
+            Vector::<U16, CipherSuite>::deserialize(buf, ((), ()))?;
         buf = buf
             .get(cipher_suites_size..)
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
         let (legacy_compression_methods, compression_methods_size) =
-            Vector::<U8, CompressionMethod>::deserialize(buf)?;
+            Vector::<U8, CompressionMethod>::deserialize(buf, ((), ()))?;
         buf = buf
             .get(compression_methods_size..)
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
-        let (extensions, extensions_size) = Vector::<U16, Extension>::deserialize(buf)?;
+        let (extensions, extensions_size) = Vector::<U16, Extension>::deserialize(buf, ((), ()))?;
 
         let client_hello = ClientHello {
             legacy_version,
@@ -263,7 +276,7 @@ mod tests {
         assert_eq!(buf, [0xFF, 0, 0, 5, 0, 0, 0, 0, 0]);
 
         assert_eq!(
-            HandshakeMsg::deserialize(&[0xFF, 0, 0, 0,]),
+            HandshakeMsg::deserialize(&[0xFF, 0, 0, 0,], ()),
             Ok((
                 HandshakeMsg {
                     msg_type: HandshakeType::Opaque,
@@ -308,7 +321,7 @@ mod tests {
         );
 
         assert_eq!(
-            ClientHello::deserialize(&buf[..client_hello_size]),
+            ClientHello::deserialize(&buf[..client_hello_size], ()),
             Ok((client_hello, client_hello_size))
         );
     }
