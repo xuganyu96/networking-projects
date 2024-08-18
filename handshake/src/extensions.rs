@@ -279,15 +279,56 @@ pub struct KeyShareEntry {
 impl Deserializable for KeyShareEntry {
     type Context = ();
 
-    fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
-        todo!();
+    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        let named_group_size = self.named_group.serialize(buf)?;
+        buf = buf
+            .get_mut(named_group_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let length_size = self.length.serialize(buf)?;
+        buf = buf
+            .get_mut(length_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let key_exchange_size = buf.write(&self.key_exchange)?;
+        return Ok(named_group_size + length_size + key_exchange_size);
     }
 
     fn deserialize(
-        buf: &[u8],
+        mut buf: &[u8],
         context: Self::Context,
     ) -> Result<(Self, usize), DeserializationError> {
-        todo!();
+        let static_size = NamedGroup::BYTES + U16::BYTES;
+        if buf.len() < static_size {
+            return Err(DeserializationError::insufficient_buffer_length(
+                static_size,
+                buf.len(),
+            ));
+        }
+
+        let (named_group, named_group_size) = NamedGroup::deserialize(buf, context)?;
+        buf = buf
+            .get(named_group_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let (length, _) = U16::deserialize(buf, context)?;
+        buf = buf.get(U16::BYTES..).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let key_exchange_size: usize = length.into();
+        if buf.len() < key_exchange_size {
+            return Err(DeserializationError::insufficient_vec_data(
+                key_exchange_size,
+                buf.len(),
+            ));
+        }
+        let key_exchange = buf
+            .get(..key_exchange_size)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC)
+            .to_vec();
+
+        let entry = KeyShareEntry {
+            named_group,
+            length,
+            key_exchange,
+        };
+
+        Ok((entry, static_size + key_exchange_size))
     }
 }
 
@@ -300,14 +341,16 @@ impl Deserializable for ClientKeyShare {
     type Context = ();
 
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
-        todo!();
+        self.client_shares.serialize(buf)
     }
 
     fn deserialize(
         buf: &[u8],
         context: Self::Context,
     ) -> Result<(Self, usize), DeserializationError> {
-        todo!();
+        let (client_shares, client_share_size) = Vector::deserialize(buf, ((), context))?;
+        let client_key_share = Self { client_shares };
+        Ok((client_key_share, client_share_size))
     }
 }
 
@@ -320,14 +363,17 @@ impl Deserializable for ServerKeyShare {
     type Context = ();
 
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
-        todo!();
+        self.server_share.serialize(buf)
     }
 
     fn deserialize(
         buf: &[u8],
         context: Self::Context,
     ) -> Result<(Self, usize), DeserializationError> {
-        todo!();
+        let (server_share, server_share_size) = KeyShareEntry::deserialize(buf, context)?;
+        let server_key_share = Self { server_share };
+
+        Ok((server_key_share, server_share_size))
     }
 }
 
@@ -382,6 +428,24 @@ mod tests {
         assert_eq!(
             Extension::deserialize(&expected_buf, ()),
             Ok((expected_extension, written)),
+        );
+    }
+
+    #[test]
+    fn key_share_entry_serde() {
+        let expected_buf = [0xff, 0xff, 0x00, 0x05, 1, 2, 3, 4, 5];
+        let expected_entry = KeyShareEntry {
+            named_group: NamedGroup::Private([0xff, 0xff]),
+            length: U16(5),
+            key_exchange: vec![1, 2, 3, 4, 5],
+        };
+
+        let mut buf = [0u8; 64];
+        let written = expected_entry.serialize(&mut buf).unwrap();
+        assert_eq!(buf.get(..written).unwrap(), &expected_buf);
+        assert_eq!(
+            KeyShareEntry::deserialize(&expected_buf, ()),
+            Ok((expected_entry, written))
         );
     }
 }
