@@ -17,6 +17,9 @@ pub enum ExtensionType {
 
     /// 0x2D
     PskKeyExchangeModes,
+
+    /// 0x0033
+    KeyShare,
 }
 
 impl ExtensionType {
@@ -29,6 +32,7 @@ impl ExtensionType {
             Self::SignatureAlgorithms => [0, 13],
             Self::SupportedGroups => [0, 0x0A],
             Self::PskKeyExchangeModes => [0, 45],
+            Self::KeyShare => [0x00, 0x33],
         }
     }
 }
@@ -50,6 +54,7 @@ impl Deserializable for ExtensionType {
             [0, 13] => Self::SignatureAlgorithms,
             [0, 0x0A] => Self::SupportedGroups,
             [0, 45] => Self::PskKeyExchangeModes,
+            [0, 51] => Self::KeyShare,
             _ => Self::Opaque([encoding[0], encoding[1]]),
         };
 
@@ -67,6 +72,7 @@ pub enum ExtensionPayload {
     SignatureAlgorithms(SignatureSchemeList),
     SupportedGroups(SupportedGroups),
     PskKeyExchangeModes(PskKeyExchangeModes),
+    KeyShare(KeyShare),
 }
 
 impl Deserializable for ExtensionPayload {
@@ -77,6 +83,7 @@ impl Deserializable for ExtensionPayload {
             Self::SignatureAlgorithms(sigalgs) => sigalgs.serialize(&mut buf),
             Self::SupportedGroups(groups) => groups.serialize(&mut buf),
             Self::PskKeyExchangeModes(modes) => modes.serialize(&mut buf),
+            Self::KeyShare(key_share) => key_share.serialize(&mut buf),
         }
     }
 
@@ -151,6 +158,10 @@ impl Deserializable for Extension {
                 let (psk_key_exchange_modes, _) =
                     PskKeyExchangeModes::deserialize(&data_slice, ())?;
                 ExtensionPayload::PskKeyExchangeModes(psk_key_exchange_modes)
+            }
+            ExtensionType::KeyShare => {
+                let (key_share, _) = KeyShare::deserialize(&data_slice, ())?;
+                ExtensionPayload::KeyShare(key_share)
             }
             ExtensionType::Opaque(_) => ExtensionPayload::Opaque(data_slice.to_vec()),
         };
@@ -232,6 +243,91 @@ impl Deserializable for PskKeyExchangeModes {
         let (ke_modes, size) = Vector::deserialize(buf, ((), ()))?;
 
         Ok((Self { ke_modes }, size))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyShare {
+    ClientKeyShare(ClientKeyShare),
+    ServerKeyShare(ServerKeyShare),
+    // TODO: we are omitting the payload in HelloRetryRequest
+}
+
+impl Deserializable for KeyShare {
+    // TODO: KeyShare needs to know the handshake message type: client hello vs server hello
+    type Context = ();
+
+    fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        todo!();
+    }
+
+    fn deserialize(
+        buf: &[u8],
+        context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
+        todo!();
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyShareEntry {
+    named_group: NamedGroup,
+    length: U16,
+    key_exchange: Vec<u8>,
+}
+
+impl Deserializable for KeyShareEntry {
+    type Context = ();
+
+    fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        todo!();
+    }
+
+    fn deserialize(
+        buf: &[u8],
+        context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
+        todo!();
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientKeyShare {
+    client_shares: Vector<U16, KeyShareEntry>,
+}
+
+impl Deserializable for ClientKeyShare {
+    type Context = ();
+
+    fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        todo!();
+    }
+
+    fn deserialize(
+        buf: &[u8],
+        context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
+        todo!();
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerKeyShare {
+    server_share: KeyShareEntry,
+}
+
+impl Deserializable for ServerKeyShare {
+    type Context = ();
+
+    fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        todo!();
+    }
+
+    fn deserialize(
+        buf: &[u8],
+        context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
+        todo!();
     }
 }
 
