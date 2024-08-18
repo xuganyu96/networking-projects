@@ -10,7 +10,8 @@ pub const MAX_RECORD_LENGTH: usize = 1 << 14;
 #[cfg(test)]
 mod tests {
     use extensions::{
-        ExtensionPayload, ExtensionType, PskKeyExchangeModes, SignatureSchemeList, SupportedGroups,
+        ClientKeyShare, ExtensionPayload, ExtensionType, KeyShare, KeyShareEntry,
+        PskKeyExchangeModes, SignatureSchemeList, SupportedGroups,
     };
     use primitives::{NamedGroup, PskKeyExchangeMode, SignatureScheme};
 
@@ -97,13 +98,22 @@ mod tests {
             }),
         };
         let key_share = Extension {
-            extension_type: ExtensionType::Opaque([0x00, 0x33]),
+            extension_type: ExtensionType::KeyShare,
             length: U16(38),
-            payload: ExtensionPayload::Opaque(vec![
-                0x00, 0x24, 0x00, 0x1D, 0x00, 0x20, 0xC9, 0x95, 0x87, 0x67, 0xE3, 0x8D, 0x0D, 0x6E,
-                0xF9, 0x5A, 0x71, 0x97, 0xAE, 0xF7, 0x95, 0x23, 0x6A, 0x0E, 0xB3, 0x4B, 0x30, 0x43,
-                0x9B, 0x93, 0xBF, 0xAF, 0x25, 0xAB, 0x75, 0xEF, 0x40, 0x10,
-            ]),
+            payload: ExtensionPayload::KeyShare(KeyShare::ClientKeyShare(ClientKeyShare {
+                client_shares: Vector {
+                    size: U16(36),
+                    elems: vec![KeyShareEntry {
+                        named_group: NamedGroup::x25519,
+                        length: U16(32),
+                        key_exchange: vec![
+                            0xC9, 0x95, 0x87, 0x67, 0xE3, 0x8D, 0x0D, 0x6E, 0xF9, 0x5A, 0x71, 0x97,
+                            0xAE, 0xF7, 0x95, 0x23, 0x6A, 0x0E, 0xB3, 0x4B, 0x30, 0x43, 0x9B, 0x93,
+                            0xBF, 0xAF, 0x25, 0xAB, 0x75, 0xEF, 0x40, 0x10,
+                        ],
+                    }],
+                },
+            })),
         };
         let supported_versions = Extension {
             extension_type: ExtensionType::Opaque([0x00, 0x2B]),

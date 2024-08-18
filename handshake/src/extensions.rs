@@ -1,4 +1,5 @@
 //! Handshake Extensions
+use crate::handshake::HandshakeType;
 use crate::primitives::{NamedGroup, PskKeyExchangeMode, SignatureScheme, Vector, U16, U8};
 use crate::traits::{Deserializable, DeserializationError};
 use crate::UNEXPECTED_OUT_OF_BOUND_PANIC;
@@ -104,7 +105,7 @@ pub struct Extension {
 }
 
 impl Deserializable for Extension {
-    type Context = ();
+    type Context = HandshakeType;
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         let type_size = self.extension_type.serialize(buf)?;
         buf = buf
@@ -121,7 +122,7 @@ impl Deserializable for Extension {
 
     fn deserialize(
         mut buf: &[u8],
-        _context: Self::Context,
+        context: Self::Context,
     ) -> Result<(Self, usize), DeserializationError> {
         let static_size = ExtensionType::BYTES + U16::BYTES;
         if buf.len() < static_size {
@@ -160,7 +161,7 @@ impl Deserializable for Extension {
                 ExtensionPayload::PskKeyExchangeModes(psk_key_exchange_modes)
             }
             ExtensionType::KeyShare => {
-                let (key_share, _) = KeyShare::deserialize(&data_slice, ())?;
+                let (key_share, _) = KeyShare::deserialize(&data_slice, context)?;
                 ExtensionPayload::KeyShare(key_share)
             }
             ExtensionType::Opaque(_) => ExtensionPayload::Opaque(data_slice.to_vec()),
@@ -254,26 +255,44 @@ pub enum KeyShare {
 }
 
 impl Deserializable for KeyShare {
-    // TODO: KeyShare needs to know the handshake message type: client hello vs server hello
-    type Context = ();
+    type Context = HandshakeType;
 
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
-        todo!();
+        match self {
+            Self::ClientKeyShare(client_key_share) => client_key_share.serialize(buf),
+            Self::ServerKeyShare(server_key_share) => server_key_share.serialize(buf),
+        }
     }
 
     fn deserialize(
         buf: &[u8],
         context: Self::Context,
     ) -> Result<(Self, usize), DeserializationError> {
-        todo!();
+        let (key_share, key_share_size) = match context {
+            HandshakeType::ClientHello => {
+                let (client_key_share, client_key_share_size) =
+                    ClientKeyShare::deserialize(buf, ())?;
+                let key_share = Self::ClientKeyShare(client_key_share);
+                (key_share, client_key_share_size)
+            }
+            HandshakeType::ServerHello => {
+                let (server_key_share, server_key_share_size) =
+                    ServerKeyShare::deserialize(buf, ())?;
+                let key_share = Self::ServerKeyShare(server_key_share);
+                (key_share, server_key_share_size)
+            }
+            _ => panic!("invalid context"),
+        };
+
+        Ok((key_share, key_share_size))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyShareEntry {
-    named_group: NamedGroup,
-    length: U16,
-    key_exchange: Vec<u8>,
+    pub named_group: NamedGroup,
+    pub length: U16,
+    pub key_exchange: Vec<u8>,
 }
 
 impl Deserializable for KeyShareEntry {
@@ -334,7 +353,7 @@ impl Deserializable for KeyShareEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientKeyShare {
-    client_shares: Vector<U16, KeyShareEntry>,
+    pub client_shares: Vector<U16, KeyShareEntry>,
 }
 
 impl Deserializable for ClientKeyShare {
@@ -394,7 +413,7 @@ mod tests {
         expected_extension.serialize(&mut buf).unwrap();
         assert_eq!(buf, expected_buf);
         assert_eq!(
-            Extension::deserialize(&expected_buf, ()),
+            Extension::deserialize(&expected_buf, HandshakeType::ClientHello),
             Ok((expected_extension, 4))
         );
     }
@@ -426,7 +445,7 @@ mod tests {
             &expected_buf
         );
         assert_eq!(
-            Extension::deserialize(&expected_buf, ()),
+            Extension::deserialize(&expected_buf, HandshakeType::ClientHello),
             Ok((expected_extension, written)),
         );
     }

@@ -237,7 +237,8 @@ impl Deserializable for ClientHello {
         buf = buf
             .get(compression_methods_size..)
             .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
-        let (extensions, extensions_size) = Vector::<U16, Extension>::deserialize(buf, ((), ()))?;
+        let (extensions, extensions_size) =
+            Vector::<U16, Extension>::deserialize(buf, ((), HandshakeType::ClientHello))?;
 
         let client_hello = ClientHello {
             legacy_version,
