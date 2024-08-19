@@ -1,6 +1,8 @@
 //! Handshake Extensions
 use crate::handshake::HandshakeType;
-use crate::primitives::{NamedGroup, PskKeyExchangeMode, SignatureScheme, Vector, U16, U8};
+use crate::primitives::{
+    NamedGroup, ProtocolVersion, PskKeyExchangeMode, SignatureScheme, Vector, U16, U8,
+};
 use crate::traits::{Deserializable, DeserializationError};
 use crate::UNEXPECTED_OUT_OF_BOUND_PANIC;
 use std::io::Write;
@@ -21,6 +23,12 @@ pub enum ExtensionType {
 
     /// 0x0033
     KeyShare,
+
+    SupportedVersions,
+
+    // TODO: I don't understand what status_request is about
+    // StatusRequest,
+    ServerName,
 }
 
 impl ExtensionType {
@@ -34,6 +42,9 @@ impl ExtensionType {
             Self::SupportedGroups => [0, 0x0A],
             Self::PskKeyExchangeModes => [0, 45],
             Self::KeyShare => [0x00, 0x33],
+            Self::SupportedVersions => [0, 43],
+            // Self::StatusRequest => [0, 5],
+            Self::ServerName => [0, 0],
         }
     }
 }
@@ -56,6 +67,9 @@ impl Deserializable for ExtensionType {
             [0, 0x0A] => Self::SupportedGroups,
             [0, 45] => Self::PskKeyExchangeModes,
             [0, 51] => Self::KeyShare,
+            [0, 43] => Self::SupportedVersions,
+            [0, 0] => Self::ServerName,
+            // [0, 5] => Self::StatusRequest,
             _ => Self::Opaque([encoding[0], encoding[1]]),
         };
 
@@ -74,6 +88,9 @@ pub enum ExtensionPayload {
     SupportedGroups(SupportedGroups),
     PskKeyExchangeModes(PskKeyExchangeModes),
     KeyShare(KeyShare),
+    SupportedVersions(SupportedVersions),
+    ServerName(Vector<U16, ServerName>),
+    // StatusRequest(StatusRequest),
 }
 
 impl Deserializable for ExtensionPayload {
@@ -85,6 +102,9 @@ impl Deserializable for ExtensionPayload {
             Self::SupportedGroups(groups) => groups.serialize(&mut buf),
             Self::PskKeyExchangeModes(modes) => modes.serialize(&mut buf),
             Self::KeyShare(key_share) => key_share.serialize(&mut buf),
+            Self::SupportedVersions(supported_versions) => supported_versions.serialize(&mut buf),
+            Self::ServerName(server_name) => server_name.serialize(&mut buf),
+            // Self::StatusRequest(status_request) => status_request.serialize(&mut buf),
         }
     }
 
@@ -164,6 +184,18 @@ impl Deserializable for Extension {
                 let (key_share, _) = KeyShare::deserialize(&data_slice, context)?;
                 ExtensionPayload::KeyShare(key_share)
             }
+            ExtensionType::SupportedVersions => {
+                let (supported_versions, _) = SupportedVersions::deserialize(&data_slice, context)?;
+                ExtensionPayload::SupportedVersions(supported_versions)
+            }
+            ExtensionType::ServerName => {
+                let (server_name_list, _) = Vector::deserialize(&data_slice, ((), ()))?;
+                ExtensionPayload::ServerName(server_name_list)
+            }
+            // ExtensionType::StatusRequest => {
+            //     let (status_request, _) = StatusRequest::deserialize(&data_slice, ())?;
+            //     ExtensionPayload::StatusRequest(status_request)
+            // }
             ExtensionType::Opaque(_) => ExtensionPayload::Opaque(data_slice.to_vec()),
         };
 
@@ -374,6 +406,42 @@ impl Deserializable for ClientKeyShare {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SupportedVersions {
+    ClientSupportedVersions(Vector<U8, ProtocolVersion>),
+    ServerSupportedVersion(ProtocolVersion),
+}
+
+impl Deserializable for SupportedVersions {
+    type Context = HandshakeType;
+
+    fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Self::ClientSupportedVersions(versions) => versions.serialize(buf),
+            Self::ServerSupportedVersion(version) => version.serialize(buf),
+        }
+    }
+
+    fn deserialize(
+        buf: &[u8],
+        context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
+        let (supported_versions, size) = match context {
+            HandshakeType::ClientHello => {
+                let (versions, versions_size) = Vector::deserialize(buf, ((), ()))?;
+                (Self::ClientSupportedVersions(versions), versions_size)
+            }
+            HandshakeType::ServerHello => {
+                let (version, version_size) = ProtocolVersion::deserialize(buf, ())?;
+                (Self::ServerSupportedVersion(version), version_size)
+            }
+            _ => panic!("invalid context"),
+        };
+
+        Ok((supported_versions, size))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerKeyShare {
     server_share: KeyShareEntry,
 }
@@ -395,6 +463,141 @@ impl Deserializable for ServerKeyShare {
         Ok((server_key_share, server_share_size))
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NameType {
+    Hostname,
+}
+
+impl NameType {
+    pub const BYTES: usize = 1;
+
+    pub fn to_bytes(&self) -> [u8; Self::BYTES] {
+        match self {
+            Self::Hostname => [0],
+        }
+    }
+}
+
+impl Deserializable for NameType {
+    type Context = ();
+
+    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        buf.write(&self.to_bytes())
+    }
+
+    fn deserialize(
+        buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
+        if buf.len() < Self::BYTES {
+            return Err(DeserializationError::insufficient_buffer_length(
+                Self::BYTES,
+                buf.len(),
+            ));
+        }
+
+        let encoding = buf.get(..Self::BYTES).expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let name_type = match *encoding {
+            [0] => Self::Hostname,
+            _ => {
+                return Err(DeserializationError::InvalidEnumValue);
+            }
+        };
+
+        Ok((name_type, Self::BYTES))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerName {
+    pub name_type: NameType,
+    pub name_length: U16,
+    /// currently only supports DNS hostnames, which must be ASCII codes, thus can be assumed to be
+    /// valid UTF-8 strings
+    pub name: String,
+}
+
+impl Deserializable for ServerName {
+    type Context = ();
+
+    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        let name_type_size = self.name_type.serialize(&mut buf)?;
+        buf = buf
+            .get_mut(name_type_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let name_length_size = self.name_length.serialize(&mut buf)?;
+        buf = buf
+            .get_mut(name_length_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let name_size = buf.write(&self.name.as_bytes())?;
+
+        Ok(name_type_size + name_length_size + name_size)
+    }
+    fn deserialize(
+        mut buf: &[u8],
+        _context: Self::Context,
+    ) -> Result<(Self, usize), DeserializationError> {
+        let static_size = NameType::BYTES + U16::BYTES;
+        if buf.len() < static_size {
+            return Err(DeserializationError::insufficient_buffer_length(
+                static_size,
+                buf.len(),
+            ));
+        }
+        let (name_type, name_type_size) = NameType::deserialize(buf, ())?;
+        buf = buf
+            .get(name_type_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+        let (name_length, name_length_size) = U16::deserialize(buf, ())?;
+        buf = buf
+            .get(name_length_size..)
+            .expect(UNEXPECTED_OUT_OF_BOUND_PANIC);
+
+        let name_length_usize: usize = name_length.into();
+        if buf.len() < name_length_usize {
+            return Err(DeserializationError::insufficient_vec_data(
+                name_length_usize,
+                buf.len(),
+            ));
+        }
+        let name = String::from_utf8(
+            buf.get(..name_length_usize)
+                .expect(UNEXPECTED_OUT_OF_BOUND_PANIC)
+                .to_vec(),
+        )
+        .unwrap();
+
+        let server_name = ServerName {
+            name_type,
+            name_length,
+            name,
+        };
+
+        Ok((
+            server_name,
+            name_type_size + name_length_size + name_length_usize,
+        ))
+    }
+}
+
+// #[derive(Debug, Clone, PartialEq, Eq)]
+// pub struct StatusRequest {}
+//
+// impl Deserializable for StatusRequest {
+//     type Context = ();
+//
+//     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+//         todo!();
+//     }
+//
+//     fn deserialize(
+//         buf: &[u8],
+//         context: Self::Context,
+//     ) -> Result<(Self, usize), DeserializationError> {
+//         todo!();
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -465,6 +668,23 @@ mod tests {
         assert_eq!(
             KeyShareEntry::deserialize(&expected_buf, ()),
             Ok((expected_entry, written))
+        );
+    }
+
+    #[test]
+    fn supported_versions_serde() {
+        let expected_encoding = [4, 3, 3, 3, 4];
+        let expected_payload = SupportedVersions::ClientSupportedVersions(Vector {
+            size: U8(4),
+            elems: vec![ProtocolVersion::Tls_1_2, ProtocolVersion::Tls_1_3],
+        });
+        let mut buf = [0u8; 8];
+        let written = expected_payload.serialize(&mut buf).unwrap();
+
+        assert_eq!(buf.get(..written).unwrap(), expected_encoding);
+        assert_eq!(
+            SupportedVersions::deserialize(&expected_encoding, HandshakeType::ClientHello),
+            Ok((expected_payload, written))
         );
     }
 }

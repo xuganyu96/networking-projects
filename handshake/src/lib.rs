@@ -10,8 +10,8 @@ pub const MAX_RECORD_LENGTH: usize = 1 << 14;
 #[cfg(test)]
 mod tests {
     use extensions::{
-        ClientKeyShare, ExtensionPayload, ExtensionType, KeyShare, KeyShareEntry,
-        PskKeyExchangeModes, SignatureSchemeList, SupportedGroups,
+        ClientKeyShare, ExtensionPayload, ExtensionType, KeyShare, KeyShareEntry, NameType,
+        PskKeyExchangeModes, ServerName, SignatureSchemeList, SupportedGroups, SupportedVersions,
     };
     use primitives::{NamedGroup, PskKeyExchangeMode, SignatureScheme};
 
@@ -116,17 +116,26 @@ mod tests {
             })),
         };
         let supported_versions = Extension {
-            extension_type: ExtensionType::Opaque([0x00, 0x2B]),
+            extension_type: ExtensionType::SupportedVersions,
             length: U16(5),
-            payload: ExtensionPayload::Opaque(vec![4, 3, 4, 3, 3]),
+            payload: ExtensionPayload::SupportedVersions(
+                SupportedVersions::ClientSupportedVersions(Vector {
+                    size: U8(4),
+                    elems: vec![ProtocolVersion::Tls_1_3, ProtocolVersion::Tls_1_2],
+                }),
+            ),
         };
         let server_name = Extension {
-            extension_type: ExtensionType::Opaque([0x00, 0x00]),
+            extension_type: ExtensionType::ServerName,
             length: U16(19),
-            payload: ExtensionPayload::Opaque(vec![
-                0, 0x11, 0x00, 0, 14, b'a', b'p', b'i', b'.', b'g', b'i', b't', b'h', b'u', b'b',
-                b'.', b'c', b'o', b'm',
-            ]),
+            payload: ExtensionPayload::ServerName(Vector {
+                size: U16(17),
+                elems: vec![ServerName {
+                    name_type: NameType::Hostname,
+                    name_length: U16(14),
+                    name: "api.github.com".to_string(),
+                }],
+            }),
         };
         let client_hello_payload = ClientHello {
             legacy_version: ProtocolVersion::Tls_1_2,
