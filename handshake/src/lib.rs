@@ -1,4 +1,3 @@
-pub mod extensions;
 pub mod handshake;
 pub mod primitives;
 pub mod record;
@@ -9,20 +8,20 @@ pub const MAX_RECORD_LENGTH: usize = 1 << 14;
 
 #[cfg(test)]
 mod tests {
-    use extensions::{
-        ClientKeyShare, ExtensionPayload, ExtensionType, KeyShare, KeyShareEntry, NameType,
-        PskKeyExchangeModes, ServerName, SignatureSchemeList, SupportedGroups, SupportedVersions,
-    };
-    use primitives::{NamedGroup, PskKeyExchangeMode, SignatureScheme};
-
     use super::*;
-    use crate::extensions::Extension;
-    use crate::handshake::{ClientHello, HandshakeMsg, HandshakeType};
-    use crate::primitives::{
-        CipherSuite, CompressionMethod, ContentType, ProtocolVersion, Vector, U16, U24, U8,
+    use handshake::extensions::{
+        ClientKeyShare, Extension, ExtensionPayload, ExtensionType, KeyShare, KeyShareEntry,
+        NameType, PskKeyExchangeModes, ServerName, SignatureSchemeList, SupportedGroups,
+        SupportedVersions,
     };
-    use crate::record::OpaqueRecord;
-    use crate::traits::Deserializable;
+
+    use handshake::{ClientHello, HandshakeMsg, HandshakeType};
+    use primitives::{
+        CipherSuite, CompressionMethod, ContentType, NamedGroup, ProtocolVersion,
+        PskKeyExchangeMode, SignatureScheme, Vector, U16, U24, U8,
+    };
+    use record::OpaqueRecord;
+    use traits::Deserializable;
 
     #[test]
     fn captured_client_hello_serde() {
@@ -51,7 +50,7 @@ mod tests {
             length: U16(22),
             payload: ExtensionPayload::SignatureAlgorithms(SignatureSchemeList {
                 supported_signature_algorithms: Vector {
-                    size: U16(20),
+                    elems_size: U16(20),
                     elems: vec![
                         SignatureScheme::ecdsa_secp521r1_sha512,
                         SignatureScheme::ecdsa_secp384r1_sha384,
@@ -78,7 +77,7 @@ mod tests {
             length: U16(8),
             payload: ExtensionPayload::SupportedGroups(SupportedGroups {
                 named_group_list: Vector {
-                    size: U16(6),
+                    elems_size: U16(6),
                     elems: vec![
                         NamedGroup::x25519,
                         NamedGroup::secp256r1,
@@ -92,7 +91,7 @@ mod tests {
             length: U16(2),
             payload: ExtensionPayload::PskKeyExchangeModes(PskKeyExchangeModes {
                 ke_modes: Vector {
-                    size: U8(1),
+                    elems_size: U8(1),
                     elems: vec![PskKeyExchangeMode::psk_dhe_ke],
                 },
             }),
@@ -102,7 +101,7 @@ mod tests {
             length: U16(38),
             payload: ExtensionPayload::KeyShare(KeyShare::ClientKeyShare(ClientKeyShare {
                 client_shares: Vector {
-                    size: U16(36),
+                    elems_size: U16(36),
                     elems: vec![KeyShareEntry {
                         named_group: NamedGroup::x25519,
                         length: U16(32),
@@ -120,7 +119,7 @@ mod tests {
             length: U16(5),
             payload: ExtensionPayload::SupportedVersions(
                 SupportedVersions::ClientSupportedVersions(Vector {
-                    size: U8(4),
+                    elems_size: U8(4),
                     elems: vec![ProtocolVersion::Tls_1_3, ProtocolVersion::Tls_1_2],
                 }),
             ),
@@ -129,7 +128,7 @@ mod tests {
             extension_type: ExtensionType::ServerName,
             length: U16(19),
             payload: ExtensionPayload::ServerName(Vector {
-                size: U16(17),
+                elems_size: U16(17),
                 elems: vec![ServerName {
                     name_type: NameType::Hostname,
                     name_length: U16(14),
@@ -145,7 +144,7 @@ mod tests {
                 0xFC, 0x84, 0xAD, 0x11,
             ],
             legacy_session_id: Vector::<U8, U8> {
-                size: U8(32),
+                elems_size: U8(32),
                 elems: vec![
                     U8(0x3E),
                     U8(0x80),
@@ -182,7 +181,7 @@ mod tests {
                 ],
             },
             cipher_suites: Vector::<U16, CipherSuite> {
-                size: U16(20),
+                elems_size: U16(20),
                 elems: vec![
                     CipherSuite::TLS_AES_256_GCM_SHA384,
                     CipherSuite::TLS_AES_128_GCM_SHA256,
@@ -197,11 +196,11 @@ mod tests {
                 ],
             },
             legacy_compression_methods: Vector::<U8, CompressionMethod> {
-                size: U8(1),
+                elems_size: U8(1),
                 elems: vec![CompressionMethod::Null],
             },
             extensions: Vector::<U16, Extension> {
-                size: U16(141),
+                elems_size: U16(141),
                 elems: vec![
                     signature_algorithms,
                     Extension {

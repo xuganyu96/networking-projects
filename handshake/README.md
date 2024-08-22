@@ -1,22 +1,8 @@
-- [x] Implement primitive types
-    - [x] Test primitive types
+- [x] Implement deserialization trait
+- [x] Implement primitive types: integers and vectors
 - [x] Implement `Record` type with opaque payload type
-    - [x] `ProtocolVersion`
-    - [x] `ContentType`
-    - [x] `RecordOverflowError` at deserialization
-    - [x] `Record` type
-- [x] Implement a binary using `rustls` and parse the handshake up to opaque records
-- [x] Implement top level handshake message parsing, up to opaque HandshakePayload
-- [ ] Implement some extensions
-    - [x] `signature_algorithms`
-    - [ ] `status_request`  
-    Skipping `status_request` because it is not strictly necessary
-    - [x] `supported_groups`
-    - [x] `psk_key_exchange_modes`
-    - [x] `key_share`
-    - [x] `supported_versions`
-    - [x] `server_name`
-- [ ] Think about API design for differentiating `TLSPlaintext` from `TLSCiphertext`
+- [x] Implement `ClientHello` parsing, except for some obscure extensions that are not strictly necessary
+- [ ] generating and sending a `ClientHello`
 
 # Handshake
 I want to better understand the TLS handshake protocol by building **a library for parsing TLS messages**. From here this project can also become a simple TLS client that allows users to tinker with the parameters of a TLS handshake.
@@ -34,6 +20,44 @@ The handshake involves client and server exchanging a number of messages:
 - Client optionally authenticates itself using the same set of messages
 - Client and server confirm that they indeed have the same session key using `Finished`
 - Handshake is completed, client and server begin exchanging application data
+
+# Serialization and deserialization
+TLS is a network protocol: at the end of the day, everything will need to be converted into a sequence of bytes, and everything will need to be parsed from a sequence of bytes. A common set of API is thus necessary for capturing the aspect of data structures being serializable and deserializable.
+
+I choose to capture this aspect of TLS data structures in a trait `Deserializable` which includes the following components:
+
+```rust
+pub trait Deserializable {
+    type Context;
+    fn serialize(&self, buf: &mut [u8]) -> std::io::Result;
+    fn deserialize(buf: &[u8], context: Self::Context) -> Result<(Self, usize), DeserializationError>;
+}
+```
+
+`Context` is worth some explanation. In TLS there are some data structures that change their internal layout depending on contextual information: is the record encrypted? is it the client or the server reading the message? For example, the handshake extension `supported_versions` is a vector of `ProtocolVersion` in `ClientHello`, but is a single `ProtocolVersion` in `ServerHello`, though they both have the same extension type, so it is not trivial to implement them as separate extensions. Instead, we can specify that when parsing bytes, the `supported_versions` extension require the caller to pass in the necessary contextual information, in this case `HandshakeType`, which can be either `ClientHello` or `ServerHello`.
+
+```rust
+pub enum SupportedVersions {
+    ClientSupportedVersions(Vector<U8, ProtocolVersion>),
+    ServerSupportedVersions(ProtocolVersion),
+}
+
+impl Deserializable for SupportedVersions {
+    type Context = HandshakeType;
+
+    fn deserialize(buf: &[u8], context: Self::Context) -> {
+        // ...
+        match context {
+            HandshakeType::ClientHello => {
+                // ... parse into vector of ProtocolVersions ...
+            },
+            HandshakeType::ServerHello => {
+                // ... parse into a single ProtocolVersion ...
+            }
+        }
+    }
+}
+```
 
 # Primitive types
 There are a few primitive data types that are the building blocks of any TLS message:

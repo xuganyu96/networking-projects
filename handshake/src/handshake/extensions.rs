@@ -51,6 +51,9 @@ impl ExtensionType {
 
 impl Deserializable for ExtensionType {
     type Context = ();
+    fn size(&self) -> usize {
+        Self::BYTES
+    }
     fn deserialize(
         buf: &[u8],
         _context: Self::Context,
@@ -95,6 +98,17 @@ pub enum ExtensionPayload {
 
 impl Deserializable for ExtensionPayload {
     type Context = ();
+    fn size(&self) -> usize {
+        match self {
+            Self::Opaque(payload) => payload.len(),
+            Self::SignatureAlgorithms(payload) => payload.size(),
+            Self::SupportedGroups(payload) => payload.size(),
+            Self::PskKeyExchangeModes(payload) => payload.size(),
+            Self::KeyShare(payload) => payload.size(),
+            Self::SupportedVersions(payload) => payload.size(),
+            Self::ServerName(payload) => payload.size(),
+        }
+    }
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
             Self::Opaque(fragment) => buf.write(&fragment),
@@ -126,6 +140,10 @@ pub struct Extension {
 
 impl Deserializable for Extension {
     type Context = HandshakeType;
+    fn size(&self) -> usize {
+        self.extension_type.size() + self.length.size() + self.payload.size()
+    }
+
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         let type_size = self.extension_type.serialize(buf)?;
         buf = buf
@@ -217,6 +235,9 @@ pub struct SignatureSchemeList {
 
 impl Deserializable for SignatureSchemeList {
     type Context = ();
+    fn size(&self) -> usize {
+        self.supported_signature_algorithms.size()
+    }
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.supported_signature_algorithms.serialize(buf)
     }
@@ -244,6 +265,9 @@ pub struct SupportedGroups {
 
 impl Deserializable for SupportedGroups {
     type Context = ();
+    fn size(&self) -> usize {
+        self.named_group_list.size()
+    }
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.named_group_list.serialize(buf)
     }
@@ -265,6 +289,9 @@ pub struct PskKeyExchangeModes {
 
 impl Deserializable for PskKeyExchangeModes {
     type Context = ();
+    fn size(&self) -> usize {
+        self.ke_modes.size()
+    }
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.ke_modes.serialize(buf)
     }
@@ -289,6 +316,12 @@ pub enum KeyShare {
 impl Deserializable for KeyShare {
     type Context = HandshakeType;
 
+    fn size(&self) -> usize {
+        match self {
+            Self::ClientKeyShare(payload) => payload.size(),
+            Self::ServerKeyShare(payload) => payload.size(),
+        }
+    }
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
             Self::ClientKeyShare(client_key_share) => client_key_share.serialize(buf),
@@ -330,6 +363,9 @@ pub struct KeyShareEntry {
 impl Deserializable for KeyShareEntry {
     type Context = ();
 
+    fn size(&self) -> usize {
+        self.named_group.size() + self.length.size() + self.key_exchange.len()
+    }
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         let named_group_size = self.named_group.serialize(buf)?;
         buf = buf
@@ -391,6 +427,9 @@ pub struct ClientKeyShare {
 impl Deserializable for ClientKeyShare {
     type Context = ();
 
+    fn size(&self) -> usize {
+        self.client_shares.size()
+    }
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.client_shares.serialize(buf)
     }
@@ -414,6 +453,12 @@ pub enum SupportedVersions {
 impl Deserializable for SupportedVersions {
     type Context = HandshakeType;
 
+    fn size(&self) -> usize {
+        match self {
+            Self::ClientSupportedVersions(payload) => payload.size(),
+            Self::ServerSupportedVersion(payload) => payload.size(),
+        }
+    }
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
             Self::ClientSupportedVersions(versions) => versions.serialize(buf),
@@ -449,6 +494,9 @@ pub struct ServerKeyShare {
 impl Deserializable for ServerKeyShare {
     type Context = ();
 
+    fn size(&self) -> usize {
+        self.server_share.size()
+    }
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.server_share.serialize(buf)
     }
@@ -482,6 +530,9 @@ impl NameType {
 impl Deserializable for NameType {
     type Context = ();
 
+    fn size(&self) -> usize {
+        Self::BYTES
+    }
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&self.to_bytes())
     }
@@ -521,6 +572,9 @@ pub struct ServerName {
 impl Deserializable for ServerName {
     type Context = ();
 
+    fn size(&self) -> usize {
+        self.name_type.size() + self.name_length.size() + self.name.as_bytes().len()
+    }
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         let name_type_size = self.name_type.serialize(&mut buf)?;
         buf = buf
@@ -626,7 +680,7 @@ mod tests {
         let expected_buf = [0, 13, 0, 10, 0, 8, 4, 1, 5, 1, 6, 1, 0xFF, 0xFF];
         let expected_signature_algorithms = SignatureSchemeList {
             supported_signature_algorithms: Vector::<U16, SignatureScheme> {
-                size: U16(8),
+                elems_size: U16(8),
                 elems: vec![
                     SignatureScheme::rsa_pkcs1_sha256,
                     SignatureScheme::rsa_pkcs1_sha384,
@@ -675,7 +729,7 @@ mod tests {
     fn supported_versions_serde() {
         let expected_encoding = [4, 3, 3, 3, 4];
         let expected_payload = SupportedVersions::ClientSupportedVersions(Vector {
-            size: U8(4),
+            elems_size: U8(4),
             elems: vec![ProtocolVersion::Tls_1_2, ProtocolVersion::Tls_1_3],
         });
         let mut buf = [0u8; 8];

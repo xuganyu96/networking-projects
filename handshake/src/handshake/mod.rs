@@ -1,10 +1,13 @@
 //! Handshake
+pub mod extensions;
+
 use crate::{
-    extensions::Extension,
+    handshake::extensions::Extension,
     primitives::{CipherSuite, CompressionMethod, ProtocolVersion, Vector, U16, U24, U8},
     traits::{Deserializable, DeserializationError},
     UNEXPECTED_OUT_OF_BOUND_PANIC,
 };
+use rand::{Fill, Rng};
 use std::io::Write;
 
 pub const RANDOM_SIZE: usize = 32;
@@ -61,6 +64,9 @@ impl Deserializable for HandshakeType {
 
         Ok((hstype, Self::BYTES))
     }
+    fn size(&self) -> usize {
+        Self::BYTES
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +92,12 @@ impl Deserializable for Payload {
     ) -> Result<(Self, usize), crate::traits::DeserializationError> {
         Ok((Self::Opaque(buf.to_vec()), buf.len()))
     }
+    fn size(&self) -> usize {
+        match self {
+            Self::Opaque(data) => data.len(),
+            Self::ClientHello(hello) => hello.size(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,6 +109,9 @@ pub struct HandshakeMsg {
 
 impl Deserializable for HandshakeMsg {
     type Context = ();
+    fn size(&self) -> usize {
+        self.msg_type.size() + self.length.size() + self.payload.size()
+    }
     fn deserialize(
         mut buf: &[u8],
         _context: Self::Context,
@@ -136,7 +151,10 @@ impl Deserializable for HandshakeMsg {
                 let (client_hello, _) = ClientHello::deserialize(payload_slice, ())?;
                 Payload::ClientHello(client_hello)
             }
-            _ => todo!(),
+            _ => {
+                let (opaque_payload, _) = Payload::deserialize(payload_slice, ())?;
+                opaque_payload
+            }
         };
 
         Ok((
@@ -164,18 +182,97 @@ impl Deserializable for HandshakeMsg {
     }
 }
 
+pub type Random = [u8; RANDOM_SIZE];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientHello {
     pub legacy_version: ProtocolVersion,
-    pub random: [u8; RANDOM_SIZE],
+    pub random: Random,
     pub legacy_session_id: Vector<U8, U8>,
     pub cipher_suites: Vector<U16, CipherSuite>,
     pub legacy_compression_methods: Vector<U8, CompressionMethod>,
     pub extensions: Vector<U16, Extension>,
 }
 
+impl ClientHello {
+    const LEGACY_VERSION: ProtocolVersion = ProtocolVersion::Tls_1_2;
+    const ALL_ZEROS_RANDOM: Random = [0u8; RANDOM_SIZE];
+
+    /// instantiate an instance of client hello with nothing inside, which can be used to create a
+    /// ClientHello from scratch. Not suitable for public use.
+    fn empty() -> Self {
+        let legacy_version = Self::LEGACY_VERSION;
+        let random = Self::ALL_ZEROS_RANDOM;
+        let legacy_session_id = Vector::empty();
+        let cipher_suites = Vector::empty();
+        let legacy_compression_methods = Vector::empty();
+        let extensions = Vector::empty();
+
+        Self {
+            legacy_version,
+            random,
+            legacy_session_id,
+            cipher_suites,
+            legacy_compression_methods,
+            extensions,
+        }
+    }
+
+    /// fill the random field with fresh set of random bytes
+    pub fn refresh_random<R: Rng>(&mut self, entropy: &mut R) {
+        self.random
+            .try_fill(entropy)
+            .expect("Failed to fill random");
+    }
+
+    /// Set legacy_session_id to the input slice
+    pub fn set_legacy_session_id(&mut self, session_id: &[u8]) {
+        self.legacy_session_id = Vector::from_slice(session_id)
+    }
+
+    /// Append a cipher suite to the field cipher_suites
+    pub fn add_cipher_suite(&mut self, cipher_suite: CipherSuite) {
+        self.cipher_suites.push(cipher_suite)
+    }
+
+    pub fn add_compression_method(&mut self, _compression_method: CompressionMethod) {
+        panic!("compression methods have been deprecated in TLS 1.3")
+    }
+
+    /// Add an extension to the set of extensions
+    pub fn add_extension(&mut self, extension: Extension) {
+        self.extensions.push(extension)
+    }
+
+    /// Instantiate an instance of a ClientHello with some sensible defaults
+    pub fn with_sane_defaults() -> Self {
+        let mut hello = Self::empty();
+        hello.refresh_random(&mut rand::thread_rng());
+
+        hello.add_cipher_suite(CipherSuite::TLS_AES_128_GCM_SHA256);
+        hello.add_cipher_suite(CipherSuite::TLS_AES_256_GCM_SHA384);
+        hello.add_cipher_suite(CipherSuite::TLS_CHACHA20_POLY1305_SHA256);
+
+        // TODO: need to add the following necessary extensions
+        // - supported_versions
+        // - supported_groups
+        // - signature_algorithms
+        // - key_share
+
+        hello
+    }
+}
+
 impl Deserializable for ClientHello {
     type Context = ();
+    fn size(&self) -> usize {
+        self.legacy_version.size()
+            + self.random.len()
+            + self.legacy_session_id.size()
+            + self.cipher_suites.size()
+            + self.legacy_compression_methods.size()
+            + self.extensions.size()
+    }
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         let version_size = self.legacy_version.serialize(buf)?;
         buf = buf
@@ -295,19 +392,19 @@ mod tests {
             legacy_version: ProtocolVersion::Tls_1_2,
             random: [1u8; RANDOM_SIZE],
             legacy_session_id: Vector::<U8, U8> {
-                size: U8(0),
+                elems_size: U8(0),
                 elems: vec![],
             },
             cipher_suites: Vector::<U16, CipherSuite> {
-                size: U16(0),
+                elems_size: U16(0),
                 elems: vec![],
             },
             legacy_compression_methods: Vector::<U8, CompressionMethod> {
-                size: U8(0),
+                elems_size: U8(0),
                 elems: vec![],
             },
             extensions: Vector {
-                size: U16(0),
+                elems_size: U16(0),
                 elems: vec![],
             },
         };

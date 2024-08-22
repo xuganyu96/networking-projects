@@ -1,4 +1,5 @@
 //! TLS client
+use handshake::handshake::ClientHello;
 use handshake::record::OpaqueRecord;
 use handshake::traits::Deserializable;
 use std::io::{Read, Write};
@@ -24,12 +25,19 @@ const CLIENT_HELLO_BYTES: [u8; 243] = [
     0x63, 0x6F, 0x6D,
 ];
 
-fn main() {
-    let mut stream = TcpStream::connect("www.github.com:443").unwrap();
+fn replay(mut stream: TcpStream) {
     stream.write(&CLIENT_HELLO_BYTES).unwrap();
 
     let mut response = [0u8; 1 << 14 + 5];
     stream.read(&mut response).unwrap();
     let (record, _) = OpaqueRecord::deserialize(&response, ()).unwrap();
     println!("received {record}");
+}
+
+fn main() {
+    let stream = TcpStream::connect("www.github.com:443").unwrap();
+    replay(stream);
+
+    let client_hello = ClientHello::with_sane_defaults();
+    println!("{:?}", &client_hello.random);
 }

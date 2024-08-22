@@ -13,6 +13,12 @@ pub enum Payload {
 
 impl Deserializable for Payload {
     type Context = ();
+    fn size(&self) -> usize {
+        match self {
+            Self::Opaque(payload) => payload.len(),
+            Self::Handshake(payload) => payload.size(),
+        }
+    }
     /// Payload always first serialize into opaque bytes. Higher level parsing should be left to
     /// other methods
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
@@ -56,6 +62,12 @@ pub struct OpaqueRecord {
 impl Deserializable for OpaqueRecord {
     type Context = ();
 
+    fn size(&self) -> usize {
+        self.content_type.size()
+            + self.legacy_record_version.size()
+            + self.length.size()
+            + self.fragment.size()
+    }
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         let mut written = 0;
         written += self.content_type.serialize(buf)?;

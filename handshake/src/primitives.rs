@@ -1,8 +1,9 @@
 use crate::{
-    traits::{Deserializable, DeserializationError},
+    traits::{Deserializable, DeserializableNum, DeserializationError, Zero},
     UNEXPECTED_OUT_OF_BOUND_PANIC,
 };
-use std::io::Write;
+use std::ops::Add;
+use std::{io::Write, num::TryFromIntError};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct U8(pub u8);
@@ -29,11 +30,38 @@ impl Deserializable for U8 {
         }
         return Ok((Self(buf[0]), Self::BYTES));
     }
+
+    fn size(&self) -> usize {
+        Self::BYTES
+    }
 }
 
 impl From<U8> for usize {
     fn from(value: U8) -> Self {
         value.0.into()
+    }
+}
+
+impl Zero for U8 {
+    fn zero() -> Self {
+        Self(0)
+    }
+}
+
+impl Add for U8 {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl TryFrom<usize> for U8 {
+    type Error = TryFromIntError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        let truncate = value.try_into()?;
+        Ok(Self(truncate))
     }
 }
 
@@ -66,11 +94,37 @@ impl Deserializable for U16 {
 
         Ok((Self(val), Self::BYTES))
     }
+    fn size(&self) -> usize {
+        Self::BYTES
+    }
 }
 
 impl From<U16> for usize {
     fn from(value: U16) -> Self {
         value.0.into()
+    }
+}
+
+impl Zero for U16 {
+    fn zero() -> Self {
+        Self(0)
+    }
+}
+
+impl Add for U16 {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl TryFrom<usize> for U16 {
+    type Error = TryFromIntError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        let truncate = value.try_into()?;
+        Ok(Self(truncate))
     }
 }
 
@@ -114,6 +168,9 @@ impl Deserializable for U24 {
 
         Ok((Self(val), Self::BYTES))
     }
+    fn size(&self) -> usize {
+        Self::BYTES
+    }
 }
 
 impl Into<usize> for U24 {
@@ -122,77 +179,26 @@ impl Into<usize> for U24 {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct U32(u32);
-
-impl U32 {
-    pub const BYTES: usize = 4;
-}
-
-impl Deserializable for U32 {
-    type Context = ();
-    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
-        buf.write(&self.0.to_be_bytes())
-    }
-
-    fn deserialize(
-        buf: &[u8],
-        _context: Self::Context,
-    ) -> Result<(Self, usize), DeserializationError> {
-        if buf.len() < Self::BYTES {
-            return Err(DeserializationError::insufficient_buffer_length(
-                Self::BYTES,
-                buf.len(),
-            ));
-        }
-        let mut be_bytes = [0u8; Self::BYTES];
-        be_bytes.copy_from_slice(&buf[0..Self::BYTES]);
-        let val = u32::from_be_bytes(be_bytes);
-
-        Ok((Self(val), Self::BYTES))
+impl Zero for U24 {
+    fn zero() -> Self {
+        Self(0)
     }
 }
 
-impl Into<usize> for U32 {
-    fn into(self) -> usize {
-        self.0.try_into().expect(UNEXPECTED_OUT_OF_BOUND_PANIC)
+impl Add for U24 {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct U64(u64);
+impl TryFrom<usize> for U24 {
+    type Error = TryFromIntError;
 
-impl U64 {
-    pub const BYTES: usize = 8;
-}
-
-impl Deserializable for U64 {
-    type Context = ();
-    fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
-        buf.write(&self.0.to_be_bytes())
-    }
-
-    fn deserialize(
-        buf: &[u8],
-        _context: Self::Context,
-    ) -> Result<(Self, usize), DeserializationError> {
-        if buf.len() < Self::BYTES {
-            return Err(DeserializationError::insufficient_buffer_length(
-                Self::BYTES,
-                buf.len(),
-            ));
-        }
-        let mut be_bytes = [0u8; Self::BYTES];
-        be_bytes.copy_from_slice(&buf[0..Self::BYTES]);
-        let val = u64::from_be_bytes(be_bytes);
-
-        Ok((Self(val), Self::BYTES))
-    }
-}
-
-impl Into<usize> for U64 {
-    fn into(self) -> usize {
-        self.0.try_into().expect(UNEXPECTED_OUT_OF_BOUND_PANIC)
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        let truncate = value.try_into()?;
+        Ok(Self(truncate))
     }
 }
 
@@ -200,30 +206,69 @@ impl Into<usize> for U64 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Vector<T, U> {
     /// The number of bytes needed to serialize and deserialize the vector
-    pub size: T,
+    pub elems_size: T,
     /// The individual elements
     pub elems: Vec<U>,
 }
 
-impl<T, U> Vector<T, U> {
-    pub fn elems_slice(&self) -> &[U] {
+impl<T, U> Vector<T, U>
+where
+    T: DeserializableNum<Output = T>,
+    U: Deserializable,
+    // Unwrapping a result requires the Error type to implement Debug
+    <T as TryFrom<usize>>::Error: std::fmt::Debug,
+{
+    /// Return a slice of the elements
+    pub fn as_slice(&self) -> &[U] {
         &self.elems
+    }
+
+    /// Create an empty vector
+    pub fn empty() -> Self {
+        Self {
+            elems_size: T::zero(),
+            elems: vec![],
+        }
+    }
+
+    /// Push an element to the end of the data slice
+    pub fn push(&mut self, elem: U) {
+        let elem_usize = elem.size();
+        self.elems.push(elem);
+
+        // need to update self.elems_size, as well
+        let elem_size: T = <T as TryFrom<usize>>::try_from(elem_usize).unwrap();
+        self.elems_size = self.elems_size + elem_size;
+    }
+}
+
+impl<T> Vector<T, U8>
+where
+    T: DeserializableNum<Output = T>,
+    <T as TryFrom<usize>>::Error: std::fmt::Debug,
+{
+    pub(crate) fn from_slice(bytes: &[u8]) -> Self {
+        let data = bytes.iter().map(|byte| U8(*byte)).collect::<Vec<U8>>();
+        Self {
+            elems_size: <T as TryFrom<usize>>::try_from(bytes.len()).expect("input bytes too long"),
+            elems: data,
+        }
     }
 }
 
 impl<T, U> Deserializable for Vector<T, U>
 where
-    T: Deserializable + Copy,
+    T: DeserializableNum<Output = T>,
     U: Deserializable,
-    usize: From<T>, // TODO: is it better to qualify with Into<usize>?
+    <T as TryFrom<usize>>::Error: std::fmt::Debug,
 {
     type Context = (T::Context, U::Context);
     /// First serialize the size, then serialize the data
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         let mut written = 0;
         // TODO: need to check that buf actually has enough lenth left
-        written += self.size.serialize(&mut buf[written..])?;
-        for elem in self.elems_slice() {
+        written += self.elems_size.serialize(&mut buf[written..])?;
+        for elem in self.as_slice() {
             written += elem.serialize(&mut buf[written..])?;
         }
         return Ok(written);
@@ -258,11 +303,15 @@ where
         }
 
         let vector = Self {
-            size: datalen,
+            elems_size: datalen,
             elems,
         };
 
         Ok((vector, written))
+    }
+
+    fn size(&self) -> usize {
+        self.elems_size.size() + self.elems.iter().map(|elem| elem.size()).sum::<usize>()
     }
 }
 
@@ -326,6 +375,9 @@ impl Deserializable for ContentType {
         };
         return Ok((content_type, Self::BYTES));
     }
+    fn size(&self) -> usize {
+        Self::BYTES
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -387,6 +439,9 @@ impl Deserializable for ProtocolVersion {
 
         Ok((protocol_version, Self::BYTES))
     }
+    fn size(&self) -> usize {
+        Self::BYTES
+    }
 }
 
 /// TLS 1.3 no longer supports plaintext compressions due to the side-channel vulnerabilities;
@@ -417,6 +472,9 @@ impl Deserializable for CompressionMethod {
         }
 
         Ok((Self::Null, Self::BYTES))
+    }
+    fn size(&self) -> usize {
+        Self::BYTES
     }
 }
 
@@ -473,6 +531,9 @@ impl Deserializable for CipherSuite {
         };
 
         Ok((cipher_suite, Self::BYTES))
+    }
+    fn size(&self) -> usize {
+        Self::BYTES
     }
 }
 
@@ -548,6 +609,9 @@ impl Deserializable for SignatureScheme {
 
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&self.to_bytes())
+    }
+    fn size(&self) -> usize {
+        Self::BYTES
     }
 }
 
@@ -636,6 +700,9 @@ impl Deserializable for NamedGroup {
     fn serialize(&self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         buf.write(&self.to_bytes())
     }
+    fn size(&self) -> usize {
+        Self::BYTES
+    }
 }
 
 #[allow(non_camel_case_types)]
@@ -686,6 +753,9 @@ impl Deserializable for PskKeyExchangeMode {
 
         Ok((mode, Self::BYTES))
     }
+    fn size(&self) -> usize {
+        Self::BYTES
+    }
 }
 
 #[cfg(test)]
@@ -697,7 +767,7 @@ mod tests {
     fn vector_serde() {
         // empty vector
         let vector = Vector::<U8, U8> {
-            size: U8(0),
+            elems_size: U8(0),
             elems: vec![],
         };
         let mut buffer = [0u8; 1];
@@ -707,13 +777,38 @@ mod tests {
 
         // non-empty vector
         let vector = Vector::<U8, U8> {
-            size: U8(2),
+            elems_size: U8(2),
             elems: vec![U8(255), U8(255)],
         };
         let mut buffer = [0u8; 3];
         let written = vector.serialize(&mut buffer).unwrap();
         assert_eq!(written, 3);
         assert_eq!(buffer, [2, 255, 255]);
+    }
+
+    #[test]
+    fn vector_empty_then_push() {
+        let mut versions = Vector::<U8, ProtocolVersion>::empty();
+        assert_eq!(versions.size(), 1);
+        assert_eq!(versions.elems_size, U8(0));
+        assert_eq!(versions.elems.len(), 0);
+
+        versions.push(ProtocolVersion::Tls_1_3);
+        versions.push(ProtocolVersion::Tls_1_2);
+        assert_eq!(versions.size(), 5);
+        assert_eq!(versions.elems_size, U8(4));
+        assert_eq!(
+            versions.as_slice(),
+            &[ProtocolVersion::Tls_1_3, ProtocolVersion::Tls_1_2]
+        );
+    }
+
+    #[test]
+    fn vector_from_byte_slice() {
+        let vector: Vector<U16, U8> = Vector::from_slice(&[69; 420]);
+        assert_eq!(vector.size(), 422);
+        assert_eq!(vector.elems_size, U16(420));
+        assert_eq!(vector.as_slice(), &[U8(69); 420]);
     }
 
     #[test]

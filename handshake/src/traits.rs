@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeserializationError {
@@ -42,8 +42,27 @@ where
 
     /// Has the same return type as io::Write::write
     fn serialize(&self, buf: &mut [u8]) -> std::io::Result<usize>;
+    /// Parse the input buffer into an instance of Self, return Self and the number of bytes
+    /// consumed if parsing is successful.
     fn deserialize(
         buf: &[u8],
         context: Self::Context,
     ) -> Result<(Self, usize), DeserializationError>;
+    /// Compute the number of bytes needed to encode the current instance at the time of calling
+    /// this function
+    fn size(&self) -> usize;
+}
+
+/// indicate that some element of this struct represent the integer zero
+pub trait Zero {
+    fn zero() -> Self;
+}
+
+pub trait DeserializableNum:
+    Zero + std::ops::Add + Deserializable + Into<usize> + TryFrom<usize> + Copy
+{
+}
+impl<T> DeserializableNum for T where
+    T: Zero + std::ops::Add + Deserializable + Into<usize> + TryFrom<usize> + Copy
+{
 }
