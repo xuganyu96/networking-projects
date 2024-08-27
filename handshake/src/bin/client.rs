@@ -1,5 +1,6 @@
 //! TLS client
-use handshake::handshake::ClientHello;
+use handshake::handshake::{ClientHello, HandshakeMsg, HandshakeType};
+use handshake::primitives::{ContentType, ProtocolVersion};
 use handshake::record::OpaqueRecord;
 use handshake::traits::Deserializable;
 use std::io::{Read, Write};
@@ -25,7 +26,7 @@ const CLIENT_HELLO_BYTES: [u8; 243] = [
     0x63, 0x6F, 0x6D,
 ];
 
-fn replay(mut stream: TcpStream) {
+pub fn replay(mut stream: TcpStream) {
     stream.write(&CLIENT_HELLO_BYTES).unwrap();
 
     let mut response = [0u8; 1 << 14 + 5];
@@ -35,9 +36,29 @@ fn replay(mut stream: TcpStream) {
 }
 
 fn main() {
-    let stream = TcpStream::connect("www.github.com:443").unwrap();
-    replay(stream);
+    let mut stream = TcpStream::connect("www.github.com:443").unwrap();
+    // replay(stream);
 
     let client_hello = ClientHello::with_sane_defaults();
-    println!("{:?}", &client_hello.random);
+    let client_hello = HandshakeMsg {
+        msg_type: HandshakeType::ClientHello,
+        length: client_hello.size().try_into().unwrap(),
+        payload: handshake::handshake::Payload::ClientHello(client_hello),
+    };
+    let client_hello = OpaqueRecord {
+        content_type: ContentType::Handshake,
+        legacy_record_version: ProtocolVersion::Tls_1_2,
+        length: client_hello.size().try_into().unwrap(),
+        fragment: handshake::record::Payload::Handshake(client_hello),
+    };
+    let mut buffer = [0u8; 1 << 12];
+    let written = client_hello.serialize(&mut buffer).unwrap();
+
+    let transmitted = stream.write(buffer.get(..written).unwrap()).unwrap();
+    println!("Transmitted {transmitted} bytes");
+
+    let received = stream.read(&mut buffer).unwrap();
+    println!("{:?}", &buffer[..received]);
+    let (record, _) = OpaqueRecord::deserialize(&buffer, ()).unwrap();
+    println!("received {record}");
 }

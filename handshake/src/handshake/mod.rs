@@ -2,8 +2,11 @@
 pub mod extensions;
 
 use crate::{
-    handshake::extensions::Extension,
-    primitives::{CipherSuite, CompressionMethod, ProtocolVersion, Vector, U16, U24, U8},
+    handshake::extensions::{Extension, KeyShareEntry},
+    primitives::{
+        CipherSuite, CompressionMethod, NamedGroup, ProtocolVersion, SignatureScheme, Vector, U16,
+        U24, U8,
+    },
     traits::{Deserializable, DeserializationError},
     UNEXPECTED_OUT_OF_BOUND_PANIC,
 };
@@ -253,11 +256,13 @@ impl ClientHello {
         hello.add_cipher_suite(CipherSuite::TLS_AES_256_GCM_SHA384);
         hello.add_cipher_suite(CipherSuite::TLS_CHACHA20_POLY1305_SHA256);
 
-        // TODO: need to add the following necessary extensions
-        // - supported_versions
-        // - supported_groups
-        // - signature_algorithms
-        // - key_share
+        hello.add_extension(Extension::client_supported_versions(&[
+            ProtocolVersion::Tls_1_3,
+        ]));
+        hello.add_extension(Extension::supported_groups(&[NamedGroup::x25519]));
+        hello.add_extension(Extension::signature_algorithms(&[SignatureScheme::ed25519]));
+        // TODO: add actual cryptographic support!
+        hello.add_extension(Extension::client_key_shares(&[KeyShareEntry::sample()]));
 
         hello
     }

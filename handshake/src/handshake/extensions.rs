@@ -138,6 +138,75 @@ pub struct Extension {
     pub payload: ExtensionPayload,
 }
 
+impl Extension {
+    pub fn client_key_shares(key_shares: &[KeyShareEntry]) -> Self {
+        let extension_type = ExtensionType::KeyShare;
+        let mut client_shares = Vector::empty();
+        key_shares
+            .iter()
+            .for_each(|share| client_shares.push(share.clone()));
+        let payload =
+            ExtensionPayload::KeyShare(KeyShare::ClientKeyShare(ClientKeyShare { client_shares }));
+        let length = payload.size().try_into().unwrap();
+
+        Self {
+            extension_type,
+            length,
+            payload,
+        }
+    }
+    pub fn signature_algorithms(signatures: &[SignatureScheme]) -> Self {
+        let extension_type = ExtensionType::SignatureAlgorithms;
+        let mut supported_signature_algorithms = Vector::empty();
+        signatures
+            .iter()
+            .for_each(|signature| supported_signature_algorithms.push(*signature));
+        let payload = ExtensionPayload::SignatureAlgorithms(SignatureSchemeList {
+            supported_signature_algorithms,
+        });
+        let length = payload.size().try_into().unwrap();
+
+        Self {
+            extension_type,
+            length,
+            payload,
+        }
+    }
+
+    pub fn client_supported_versions(versions: &[ProtocolVersion]) -> Self {
+        let extension_type = ExtensionType::SupportedVersions;
+
+        let mut vector = Vector::empty();
+        versions
+            .iter()
+            .for_each(|version| vector.push(version.clone()));
+        let payload =
+            ExtensionPayload::SupportedVersions(SupportedVersions::ClientSupportedVersions(vector));
+
+        Self {
+            extension_type,
+            length: payload.size().try_into().unwrap(),
+            payload,
+        }
+    }
+
+    pub fn supported_groups(groups: &[NamedGroup]) -> Self {
+        let mut vector = Vector::empty();
+        groups.iter().for_each(|group| vector.push(group.clone()));
+        let payload = ExtensionPayload::SupportedGroups(SupportedGroups {
+            named_group_list: vector,
+        });
+        let extension_type = ExtensionType::SupportedGroups;
+        let length = payload.size().try_into().unwrap();
+
+        Self {
+            extension_type,
+            length,
+            payload,
+        }
+    }
+}
+
 impl Deserializable for Extension {
     type Context = HandshakeType;
     fn size(&self) -> usize {
@@ -358,6 +427,30 @@ pub struct KeyShareEntry {
     pub named_group: NamedGroup,
     pub length: U16,
     pub key_exchange: Vec<u8>,
+}
+
+impl KeyShareEntry {
+    pub fn from_slice(named_group: NamedGroup, key_exchange: &[u8]) -> Self {
+        let key_exchange = key_exchange.to_vec();
+        let length = key_exchange.len().try_into().unwrap();
+
+        Self {
+            named_group,
+            length,
+            key_exchange,
+        }
+    }
+
+    pub(crate) fn sample() -> Self {
+        Self::from_slice(
+            NamedGroup::x25519,
+            &[
+                0xC9, 0x95, 0x87, 0x67, 0xE3, 0x8D, 0x0D, 0x6E, 0xF9, 0x5A, 0x71, 0x97, 0xAE, 0xF7,
+                0x95, 0x23, 0x6A, 0x0E, 0xB3, 0x4B, 0x30, 0x43, 0x9B, 0x93, 0xBF, 0xAF, 0x25, 0xAB,
+                0x75, 0xEF, 0x40, 0x10,
+            ],
+        )
+    }
 }
 
 impl Deserializable for KeyShareEntry {
@@ -739,6 +832,52 @@ mod tests {
         assert_eq!(
             SupportedVersions::deserialize(&expected_encoding, HandshakeType::ClientHello),
             Ok((expected_payload, written))
+        );
+    }
+
+    #[test]
+    fn client_supported_versions() {
+        let supported_versions = Extension::client_supported_versions(&[ProtocolVersion::Tls_1_3]);
+        assert_eq!(
+            supported_versions.extension_type,
+            ExtensionType::SupportedVersions
+        );
+        assert_eq!(supported_versions.length, U16(3));
+        assert_eq!(
+            supported_versions.payload,
+            ExtensionPayload::SupportedVersions(SupportedVersions::ClientSupportedVersions(
+                Vector {
+                    elems_size: U8(2),
+                    elems: vec![ProtocolVersion::Tls_1_3]
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn instantiate_supported_groups() {
+        let supported_groups = Extension::supported_groups(&[
+            NamedGroup::x25519,
+            NamedGroup::secp256r1,
+            NamedGroup::secp384r1,
+        ]);
+        assert_eq!(
+            supported_groups.extension_type,
+            ExtensionType::SupportedGroups
+        );
+        assert_eq!(supported_groups.length, U16(8));
+        assert_eq!(
+            supported_groups.payload,
+            ExtensionPayload::SupportedGroups(SupportedGroups {
+                named_group_list: Vector {
+                    elems_size: U16(6),
+                    elems: vec![
+                        NamedGroup::x25519,
+                        NamedGroup::secp256r1,
+                        NamedGroup::secp384r1
+                    ],
+                }
+            })
         );
     }
 }

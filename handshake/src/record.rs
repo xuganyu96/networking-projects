@@ -1,4 +1,5 @@
 //! Record Layer
+use crate::alert::Alert;
 use crate::handshake::HandshakeMsg;
 use crate::primitives::{ContentType, ProtocolVersion, U16};
 use crate::traits::{Deserializable, DeserializationError};
@@ -9,6 +10,7 @@ use std::io::Write;
 pub enum Payload {
     Opaque(Vec<u8>),
     Handshake(HandshakeMsg),
+    Alert(Alert),
 }
 
 impl Deserializable for Payload {
@@ -17,6 +19,7 @@ impl Deserializable for Payload {
         match self {
             Self::Opaque(payload) => payload.len(),
             Self::Handshake(payload) => payload.size(),
+            Self::Alert(alert) => alert.size(),
         }
     }
     /// Payload always first serialize into opaque bytes. Higher level parsing should be left to
@@ -25,6 +28,7 @@ impl Deserializable for Payload {
         match self {
             Self::Opaque(fragment) => buf.write(&fragment),
             Self::Handshake(msg) => msg.serialize(buf),
+            Self::Alert(alert) => alert.serialize(buf),
         }
     }
 
@@ -130,8 +134,12 @@ impl Deserializable for OpaqueRecord {
                 let (msg, _) = HandshakeMsg::deserialize(fragment, ())?;
                 Payload::Handshake(msg)
             }
+            ContentType::Alert => {
+                let (alert, _) = Alert::deserialize(fragment, ())?;
+                Payload::Alert(alert)
+            }
             ContentType::Opaque => Payload::Opaque(fragment.to_vec()),
-            _ => todo!(),
+            _ => todo!("{content_type:?} not yet implemented"),
         };
 
         return Ok((
